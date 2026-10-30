@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image
 
 import dimg
+import effimg
 import gsa
 import headtool
 import pkg
@@ -29,7 +30,7 @@ DATA = r'F:\WG自由幻想\自由幻想\data'
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIELDS_CSV = os.path.join(HERE, 'out', 'zipbin_fields.csv')
 
-IMAGE_EXT = {'.gsn', '.gso', '.gsa', '.til', '.dat', '.tga', '.bmp', '.png', '.jpg', '.jpeg'}
+IMAGE_EXT = {'.gsn', '.gso', '.gsa', '.til', '.dat', '.tga', '.bmp', '.png', '.jpg', '.jpeg', '.eff'}
 TABLE_EXT = {'.bin'}
 
 
@@ -123,6 +124,31 @@ def src_bytes(rel):
     return pkg.pkg(hit[0]).read_entry(hit[1])
 
 
+_MAGIC = {}
+
+
+def magic_bytes(fname):
+    """.eff 里引用的精灵（`magic144` → pkg `magic/magic0144.gso`）的字节。"""
+    if fname in _MAGIC:
+        return _MAGIC[fname]
+    d = None
+    for rel in ('magic/' + fname, 'magic/magic/' + fname):
+        try:
+            d = src_bytes(rel)
+            break
+        except Exception:
+            continue
+    if d is None:
+        try:
+            hit = pkg.find(fname)
+            if hit:
+                d = pkg.pkg(hit[0]).read_entry(hit[1])
+        except Exception:
+            d = None
+    _MAGIC[fname] = d
+    return d
+
+
 # ---------------------------------------------------------------- 分类 / 分页
 _CATS = None
 
@@ -172,11 +198,14 @@ def files_page(rel, kind='img', page=0, size=200, q=''):
     allowed = IMAGE_EXT if kind == 'img' else (TABLE_EXT if kind == 'bin' else None)
     rows, seen = [], set()
     ql = q.lower()
+    bl = eff_blank_set() if 'effect' in (pkg_key(rel) or rel) else set()
     for sub, sz in _iter_files(rel):
         if sub in seen:
             continue
         seen.add(sub)
         if allowed is not None and os.path.splitext(sub)[1].lower() not in allowed:
+            continue
+        if bl and sub in bl:
             continue
         if ql and ql not in sub.lower():
             continue
@@ -215,6 +244,47 @@ _IMG_CACHE = OrderedDict()
 _IMG_CACHE_MAX = 400
 _INFO_CACHE = OrderedDict()
 
+_EFF_BLANK = {}          # rel -> True/False（整条特效在采样时刻是否全透明）
+_EFF_PROBE = (0.25, 0.50, 0.75)
+_EFF_BLANK_SET = None
+
+
+def eff_blank_set():
+    """out/eff_blank.json 里预计算出的「全空特效」文件名集合（effscan.py 生成）。"""
+    global _EFF_BLANK_SET
+    if _EFF_BLANK_SET is None:
+        p = os.path.join(HERE, 'out', 'eff_blank.json')
+        s = set()
+        try:
+            with open(p, encoding='utf-8') as fh:
+                s = set(json.load(fh).get('blank') or [])
+        except Exception:       # noqa: BLE001
+            s = set()
+        _EFF_BLANK_SET = s
+    return _EFF_BLANK_SET
+
+
+def eff_blank(rel):
+    """整条 .eff 在采样时刻是否完全没有可见像素（用于「空特效不显示」）。"""
+    hit = _EFF_BLANK.get(rel)
+    if hit is not None:
+        return hit
+    if rel == 'effect/tfx8037.eff':
+        print(123)
+    txt = src_bytes(rel).decode('gbk', 'replace')
+    ms = effimg.duration(txt)
+    blank = True
+    for frac in _EFF_PROBE:
+        try:
+            im, _n = effimg.render(txt, t=ms * frac, provider=magic_bytes)
+        except Exception:       # noqa: BLE001
+            im = None
+        if im is not None and not effimg.blank(im):
+            blank = False
+            break
+    _EFF_BLANK[rel] = blank
+    return blank
+
 
 def img_bytes(rel, i, mx):
     """PNG 字节（只解第 i 帧，带 LRU 缓存）。"""
@@ -223,9 +293,13 @@ def img_bytes(rel, i, mx):
     if hit is not None:
         _IMG_CACHE.move_to_end(key)
         return hit
+    if _ext(rel) in ('.eff', '.eff_') and eff_blank(rel):
+        raise LookupError('empty effect (no visible pixel at any sampled time)')
     im = frame_image(rel, i)
     if im is None:
         raise LookupError('no such frame')
+    if _ext(rel) in ('.eff', '.eff_') and effimg.blank(im):
+        raise LookupError('empty effect frame')
     if mx > 0 and max(im.width, im.height) > mx:
         im = im.copy()
         im.thumbnail((mx, mx), Image.NEAREST)
@@ -295,6 +369,20 @@ def _info_of(rel):
         im.load()
         info.update(kind='image', frames=1, w=im.width, h=im.height)
         return info
+    if ext in ('.eff', '.eff_'):
+        txt = d.decode('gbk', 'replace')
+        ms = effimg.duration(txt)
+        layers = 0
+        try:
+            import eff as _eff
+            tree = _eff.parse(txt)
+            layers = len(_eff.layers(tree)) if tree is not None else 0
+        except Exception:
+            layers = 0
+        info.update(kind='eff', frames=len(effimg.FRACS), w=0, h=0,
+                    duration=ms, layers=layers, blank=eff_blank(rel),
+                    note='合成预览：按关键帧时间采样的 %d 帧' % len(effimg.FRACS))
+        return info
     raise ValueError('unsupported ' + ext)
 
 
@@ -350,6 +438,19 @@ def frame_image(rel, i):
         im = Image.open(io.BytesIO(d))
         im.load()
         return im.convert('RGBA')
+    if ext in ('.eff', '.eff_'):
+        txt = d.decode('gbk', 'replace')
+        ms = effimg.duration(txt)
+        fr = effimg.FRACS
+        if not 0 <= i < len(fr):
+            raise LookupError('frame')
+        # all frames of one effect share a canvas, otherwise every frame is
+        # re-centred on its own content and the motion disappears
+        box = effimg.effect_box(txt, magic_bytes, key=rel)
+        im, _n = effimg.render(txt, t=ms * fr[i], provider=magic_bytes, box=box)
+        if im is None:
+            raise LookupError('cannot render effect')
+        return im
     raise ValueError('unsupported ' + ext)
 
 

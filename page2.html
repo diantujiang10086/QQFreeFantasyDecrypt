@@ -74,7 +74,7 @@ th{background:#242933;color:#cfd6e3;position:sticky;top:0}
 </div>
 <div id="lb" hidden><img id="lbimg" alt=""><div id="lbhint">点击任意处关闭</div></div>
 <script>
-const IMGEXT=new Set(['gsn','gso','gsa','til','dat','tga','bmp','png','jpg','jpeg']);
+const IMGEXT=new Set(['gsn','gso','gsa','til','dat','tga','bmp','png','jpg','jpeg','eff']);
 const S={cat:'',page:0,size:100,total:0,pages:1,files:[],kind:'img'};
 const $=s=>document.querySelector(s);
 const enc=encodeURIComponent;
@@ -139,7 +139,7 @@ function render(){
     if(IMGEXT.has(ext(f.n))){
       const im=document.createElement('img');
       im.dataset.src='/api/img?p='+enc(p)+'&i=0&max=120';
-      im.onerror=()=>{im.classList.add('bad')};
+      im.onerror=()=>{c.style.display='none'};
       io.observe(im);
       st.appendChild(im);
     }else{
@@ -176,28 +176,35 @@ function meta(info){
   return t.join(' · ');
 }
 
+/* 详情里的一帧：先只放占位框，点一下才去请求这一帧的图（大图集不会一次拉几百张） */
+function mkFrame(p,i){
+  const c=document.createElement('div');c.className='card';
+  const st=document.createElement('div');st.className='stage';
+  const im=document.createElement('img');
+  im.loading='lazy';
+  const l=document.createElement('div');l.className='lbl';l.textContent='#'+i;
+  im.src='/api/img?p='+enc(p)+'&i='+i+'&max=512';
+  im.onerror=()=>{im.remove();l.textContent='空帧 '+i};
+  im.onclick=()=>lightbox('/api/img?p='+enc(p)+'&i='+i);
+  st.appendChild(im);
+  c.append(st,l);
+  return c;
+}
+
 async function detail(p,name){
   $('#detail').hidden=false;
   $('#dtitle').textContent=name;
   $('#dmeta').textContent='加载中…';
   const box=$('#dframes');box.innerHTML='';box.className='';
   try{
-    if(IMGEXT.has(ext(name))){
+    if(ext(name)==='eff'){
+      await effDetail(p,name,box);
+    }else if(IMGEXT.has(ext(name))){
       const info=await j('/api/info?p='+enc(p));
       $('#dmeta').textContent=meta(info)+'   '+p;
       box.className='grid';
       const n=info.frames||info.entries||1;
-      for(let i=0;i<n;i++){
-        const c=document.createElement('div');c.className='card';
-        const st=document.createElement('div');st.className='stage';
-        const im=document.createElement('img');
-        im.src='/api/img?p='+enc(p)+'&i='+i+'&max=512';
-        const l=document.createElement('div');l.className='lbl';l.textContent='#'+i;
-        im.onerror=()=>{im.remove();l.textContent='空帧 #'+i};
-        st.appendChild(im);
-        im.onclick=()=>lightbox('/api/img?p='+enc(p)+'&i='+i);
-        c.append(st,l);box.appendChild(c);
-      }
+      for(let i=0;i<n;i++) box.appendChild(mkFrame(p,i));
     }else if(ext(name)==='bin'){
       const t=await j('/api/table?p='+enc(p)+'&limit=500');
       $('#dmeta').textContent=meta(t.info)+'   '+p;
@@ -213,6 +220,53 @@ async function detail(p,name){
       const pre=document.createElement('pre');pre.textContent=t.text;box.appendChild(pre);
     }
   }catch(e){$('#dmeta').textContent='读取失败 '+e}
+}
+
+/* .eff：合成帧 + 「显示文本」开关 */
+async function effDetail(p,name,box){
+  const info=await j('/api/info?p='+enc(p));
+  $('#dmeta').textContent=meta(info)+'   '+p;
+  box.className='';
+  const bar=document.createElement('div');
+  bar.style.cssText='display:flex;gap:10px;align-items:center;margin-bottom:8px';
+  const btn=document.createElement('button');
+  btn.textContent='显示文本';
+  btn.style.cssText='background:#242933;color:#cfd6e3;border:1px solid #313846;border-radius:5px;padding:3px 10px;cursor:pointer';
+  bar.appendChild(btn);
+  if(info.blank){
+    const s=document.createElement('span');
+    s.textContent='空特效：所有采样时刻都没有可见像素';
+    s.style.color='#f99';
+    bar.appendChild(s);
+  }
+  box.appendChild(bar);
+  const pre=document.createElement('pre');
+  pre.hidden=true;
+  if(!info.blank){
+    const grid=document.createElement('div');
+    grid.className='grid';
+    grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px';
+    const n=info.frames||6;
+    for(let i=0;i<n;i++) grid.appendChild(mkFrame(p,i));
+    box.appendChild(grid);
+  }
+  box.appendChild(pre);
+  btn.onclick=async()=>{
+    if(pre.hidden){
+      btn.textContent='隐藏文本';
+      pre.hidden=false;
+      if(!pre.textContent){
+        pre.textContent='加载中…';
+        try{
+          const t=await j('/api/text?p='+enc(p));
+          pre.textContent=t.text;
+        }catch(e){pre.textContent='读取失败 '+e}
+      }
+    }else{
+      pre.hidden=true;
+      btn.textContent='显示文本';
+    }
+  };
 }
 
 function lightbox(src){
