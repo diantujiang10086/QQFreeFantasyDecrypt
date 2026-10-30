@@ -64,16 +64,29 @@ def _clean_names(text):
     return names
 
 
+_SRC_CACHE = None
+
+
+def _sources():
+    """{文件名: 源码文本}，只读一次（225 张表 × 500 文件太慢）。"""
+    global _SRC_CACHE
+    if _SRC_CACHE is None:
+        cache = {}
+        for f in sorted(os.listdir(SRV)):
+            if not f.endswith('.py'):
+                continue
+            try:
+                cache[f] = open(os.path.join(SRV, f), 'rb').read().decode('utf-8', 'ignore')
+            except OSError:
+                pass
+        _SRC_CACHE = cache
+    return _SRC_CACHE
+
+
 def scan_table(name):
     """Collect (offset, size, kind, name, file) candidates for one table."""
     cand = []
-    for f in sorted(os.listdir(SRV)):
-        if not f.endswith('.py'):
-            continue
-        try:
-            s = open(os.path.join(SRV, f), 'rb').read().decode('utf-8', 'ignore')
-        except OSError:
-            continue
+    for f, s in _sources().items():
         for m in re.finditer(r"table\(\s*['\"]%s['\"]\s*,\s*(\d+)\s*\)" % re.escape(name), s, re.I):
             win = s[m.end():m.end() + 6000]
             for a in UNPACK_ASSIGN.finditer(win):
@@ -112,14 +125,23 @@ def scan_table(name):
 
 
 def fieldmap(widths=None):
-    """-> {table: [(offset, size, kind, name)]} with conflicts resolved by vote."""
+    """-> {table: [(offset, size, kind, name)]} with conflicts resolved by vote.
+
+    widths: 可选 {名字: 行宽}；不给就扫磁盘 zipbin 目录（磁盘被清空时请传入）。
+    """
     tables = {}
-    for name in sorted(os.listdir(zipbin.CLIENT)):
+    if widths is None:
+        widths = {}
+        for name in sorted(os.listdir(zipbin.CLIENT)):
+            if not name.lower().endswith('.bin'):
+                continue
+            try:
+                widths[name] = zipbin.read(os.path.join(zipbin.CLIENT, name))['width']
+            except Exception:                   # noqa: BLE001
+                continue
+    for name in sorted(widths):
+        w = widths[name]
         if not name.lower().endswith('.bin'):
-            continue
-        try:
-            w = zipbin.read(os.path.join(zipbin.CLIENT, name))['width']
-        except Exception:                       # noqa: BLE001
             continue
         cand = scan_table(name)
         if not cand:

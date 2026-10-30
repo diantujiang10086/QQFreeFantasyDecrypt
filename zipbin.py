@@ -16,7 +16,10 @@ MAGIC = 0x5566
 
 
 def read(path, width=None):
-    d = open(path, 'rb').read()
+    return read_bytes(open(path, 'rb').read(), path, width)
+
+
+def read_bytes(d, path='<mem>', width=None):
     if len(d) < 16:
         raise ValueError('%s: %d bytes, too short' % (path, len(d)))
     magic, ver, size, count = struct.unpack_from('<4I', d, 0)

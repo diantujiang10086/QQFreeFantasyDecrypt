@@ -45,7 +45,10 @@ def rgba(d, off, w, h):
 
 
 def til(path):
-    d = open(path, 'rb').read()
+    return til_data(open(path, 'rb').read(), path)
+
+
+def til_data(d, path=''):
     n = struct.unpack_from('<I', d, 12)[0]
     ver = struct.unpack_from('<I', d, 8)[0]
     hdr = len(d) - n * TIL_ENTRY
@@ -54,7 +57,10 @@ def til(path):
 
 
 def tileimg(path):
-    d = open(path, 'rb').read()
+    return tileimg_data(open(path, 'rb').read(), path)
+
+
+def tileimg_data(d, path=''):
     n = struct.unpack_from('<I', d, 28)[0]
     return {'path': path, 'n': n, 'ver': struct.unpack_from('<I', d, 8)[0], 'hdr': 64,
             'size': len(d), 'd': d,

@@ -1,0 +1,257 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>资源查看器（pkg 直读）</title>
+<style>
+:root{--bg:#16181d;--fg:#dfe3ea;--dim:#8b93a3;--acc:#5aa9ff;--line:#2a2e37;--card:#21252d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);background:#1b1e24}
+header b{color:var(--acc);margin-right:6px;font-weight:600}
+#cats{display:flex;flex-wrap:wrap;gap:4px;flex:1}
+#cats button{background:#242933;color:#cfd6e3;border:1px solid #313846;border-radius:14px;padding:3px 10px;cursor:pointer;font-size:12px}
+#cats button:hover{border-color:#4a6b96}
+#cats button.on{background:#1d3a5c;border-color:var(--acc);color:#fff}
+#kind,#q{background:#141821;border:1px solid #313846;color:var(--fg);border-radius:6px;padding:4px 6px}
+#q{width:180px}
+main{flex:1;overflow:auto;padding:10px}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.card{background:var(--card);border:1px solid #2b313c;border-radius:6px;padding:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;min-height:104px;justify-content:center}
+.card:hover{border-color:var(--acc)}
+.card .stage{width:88px;height:88px;display:flex;align-items:center;justify-content:center;border-radius:3px;
+ background-color:#2a2f38;
+ background-image:linear-gradient(45deg,#3a4049 25%,transparent 25%,transparent 75%,#3a4049 75%),
+                  linear-gradient(45deg,#3a4049 25%,transparent 25%,transparent 75%,#3a4049 75%);
+ background-size:12px 12px;background-position:0 0,6px 6px}
+.card .stage img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;image-rendering:pixelated}
+.card img.bad{visibility:hidden}
+.card .ico{font-size:30px;line-height:88px;height:88px;width:88px;text-align:center;color:#7f8b9e}
+.card .lbl{font-size:11px;color:#a8b2c2;margin-top:3px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+footer{display:flex;gap:8px;align-items:center;padding:6px 10px;border-top:1px solid var(--line);background:#1b1e24;color:var(--dim)}
+footer button,footer select{background:#242933;color:#cfd6e3;border:1px solid #313846;border-radius:5px;padding:3px 8px;cursor:pointer}
+footer input{background:#141821;border:1px solid #313846;color:var(--fg);border-radius:5px;padding:3px 6px;width:70px}
+footer button:disabled{opacity:.35;cursor:default}
+#pInfo{color:var(--fg);min-width:96px;text-align:center}
+#stat{margin-left:auto}
+#detail{position:fixed;inset:0;background:#0f1116f2;display:flex;flex-direction:column;z-index:20}
+#detail[hidden]{display:none}
+#dhead{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)}
+#dtitle{color:var(--acc);font-weight:600}
+#dmeta{color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dclose{background:#332;border:1px solid #644;color:#fbb;border-radius:5px;padding:3px 9px;cursor:pointer}
+#dframes{flex:1;overflow:auto;padding:10px}
+#dframes.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+#dframes .stage{width:112px;height:112px}
+#dframes .stage img{cursor:zoom-in}
+pre{background:#11141a;border:1px solid var(--line);border-radius:6px;padding:10px;overflow:auto;margin:0;font:12px/1.5 Consolas,monospace;color:#cdd6e4;max-height:100%}
+table{border-collapse:collapse;font-size:12px;font-family:Consolas,monospace}
+th,td{border:1px solid #2b313c;padding:2px 6px;white-space:nowrap}
+th{background:#242933;color:#cfd6e3;position:sticky;top:0}
+#lb{position:fixed;inset:0;background:#000e;display:flex;align-items:center;justify-content:center;z-index:40;cursor:zoom-out}
+#lb[hidden]{display:none}
+#lbimg{max-width:94vw;max-height:90vh;image-rendering:pixelated;
+ background-color:#2a2f38;
+ background-image:linear-gradient(45deg,#3a4049 25%,transparent 25%,transparent 75%,#3a4049 75%),
+                  linear-gradient(45deg,#3a4049 25%,transparent 25%,transparent 75%,#3a4049 75%);
+ background-size:16px 16px;background-position:0 0,8px 8px}
+#lbhint{position:fixed;bottom:8px;left:0;right:0;text-align:center;color:#9fb4d0;font-size:12px;pointer-events:none}
+</style></head><body>
+<header><b>资源</b><div id="cats"></div>
+  <select id="kind"><option value="img" selected>图片</option><option value="all">全部文件</option><option value="bin">表格</option></select>
+  <input id="q" placeholder="过滤名字…"></header>
+<main><div id="grid"></div></main>
+<footer>
+  <button id="pFirst">⏮</button><button id="pPrev">◀</button>
+  <span id="pInfo">-</span>
+  <button id="pNext">▶</button><button id="pLast">⏭</button>
+  <select id="pSize"><option selected>100</option><option>200</option><option>500</option><option>1000</option></select>
+  <input id="pJump" type="number" min="1" placeholder="页码">
+  <button id="pGo">跳转</button>
+  <span id="stat"></span>
+</footer>
+<div id="detail" hidden>
+  <div id="dhead"><span id="dtitle"></span><span id="dmeta"></span><button id="dclose">✕ 关闭</button></div>
+  <div id="dframes"></div>
+</div>
+<div id="lb" hidden><img id="lbimg" alt=""><div id="lbhint">点击任意处关闭</div></div>
+<script>
+const IMGEXT=new Set(['gsn','gso','gsa','til','dat','tga','bmp','png','jpg','jpeg']);
+const S={cat:'',page:0,size:100,total:0,pages:1,files:[],kind:'img'};
+const $=s=>document.querySelector(s);
+const enc=encodeURIComponent;
+const ext=n=>n.split('.').pop().toLowerCase();
+async function j(u){const r=await fetch(u);if(!r.ok)throw new Error(r.status+' '+u);return r.json()}
+
+let io=null;
+function newIO(){
+  if(io)io.disconnect();
+  io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(!e.isIntersecting)return;
+      const im=e.target;io.unobserve(im);
+      if(im.dataset.src){im.src=im.dataset.src;delete im.dataset.src}
+    });
+  },{root:document.querySelector('main'),rootMargin:'240px'});
+}
+function cancelImgs(){
+  if(io)io.disconnect();
+  document.querySelectorAll('#grid img').forEach(im=>{im.removeAttribute('src');delete im.dataset.src});
+}
+
+async function boot(){
+  let cats;
+  try{cats=await j('/api/cats')}catch(e){$('#stat').textContent='读取分类失败 '+e;return}
+  const box=$('#cats');
+  const HIDE=new Set(['pet','zipbin']);
+  cats.filter(c=>!HIDE.has(c.n)).forEach(c=>{
+    const b=document.createElement('button');
+    b.textContent=c.n+'  '+c.c;
+    b.onclick=()=>{S.cat=c.k;S.page=0;[...box.children].forEach(x=>x.classList.toggle('on',x===b));load()};
+    box.appendChild(b);
+  });
+  box.firstChild && box.firstChild.click();
+}
+
+async function load(){
+  cancelImgs();
+  const u='/api/files?p='+enc(S.cat)+'&kind='+S.kind+'&page='+S.page+'&size='+S.size+'&q='+enc($('#q').value.trim());
+  let r;
+  try{r=await j(u)}catch(e){$('#stat').textContent='读取失败 '+e;$('#grid').innerHTML='';return}
+  S.files=r.files;S.total=r.total;S.pages=r.pages;S.page=r.page;
+  render();
+}
+
+function render(){
+  const g=$('#grid');
+  if(io)io.disconnect();
+  [...g.querySelectorAll('img')].forEach(im=>{im.removeAttribute('src');delete im.dataset.src});
+  g.innerHTML='';
+  newIO();
+  if(!S.files.length){
+    const d=document.createElement('div');
+    d.style.cssText='grid-column:1/-1;color:#8b93a3;padding:24px;text-align:center';
+    d.textContent='（这个分类在当前模式下没有文件，试试切到「全部文件」）';
+    g.appendChild(d);
+  }
+  S.files.forEach(f=>{
+    const p=S.cat+'/'+f.n;
+    const c=document.createElement('div');c.className='card';
+    const st=document.createElement('div');st.className='stage';
+    if(IMGEXT.has(ext(f.n))){
+      const im=document.createElement('img');
+      im.dataset.src='/api/img?p='+enc(p)+'&i=0&max=120';
+      im.onerror=()=>{im.classList.add('bad')};
+      io.observe(im);
+      st.appendChild(im);
+    }else{
+      st.textContent=ext(f.n)==='bin'?'▦':'📄';
+      st.style.fontSize='30px';st.style.color='#7f8b9e';
+    }
+    c.appendChild(st);
+    const l=document.createElement('div');l.className='lbl';l.textContent=f.n;l.title=f.n+'  '+(f.s|0)+' B';
+    c.append(l);
+    c.onclick=()=>detail(p,f.n);
+    g.appendChild(c);
+  });
+  $('#pInfo').textContent='第 '+(S.page+1)+' / '+S.pages+' 页';
+  $('#pJump').max=S.pages;
+  $('#pJump').placeholder='1-'+S.pages;
+  $('#stat').textContent='共 '+S.total+' 个  ·  '+S.size+'/页';
+  $('#pFirst').disabled=$('#pPrev').disabled=S.page<=0;
+  $('#pNext').disabled=$('#pLast').disabled=S.page>=S.pages-1;
+  g.scrollTop=0;
+}
+
+function meta(info){
+  const t=[];
+  if(info.kind)t.push(info.kind);
+  if(info.version)t.push('v'+info.version);
+  if(info.width!=null)t.push('行宽 '+info.width);
+  if(info.count!=null)t.push(info.count+' 行');
+  if(info.frames!=null)t.push(info.frames+' 帧');
+  if(info.w!=null)t.push(info.w+'×'+info.h);
+  if(info.entries!=null)t.push(info.entries+' 条目');
+  if(info.bpp)t.push('bpp '+info.bpp);
+  if(info.origin)t.push(info.origin);
+  if(info.bytes)t.push((info.bytes/1024).toFixed(1)+' KB');
+  return t.join(' · ');
+}
+
+async function detail(p,name){
+  $('#detail').hidden=false;
+  $('#dtitle').textContent=name;
+  $('#dmeta').textContent='加载中…';
+  const box=$('#dframes');box.innerHTML='';box.className='';
+  try{
+    if(IMGEXT.has(ext(name))){
+      const info=await j('/api/info?p='+enc(p));
+      $('#dmeta').textContent=meta(info)+'   '+p;
+      box.className='grid';
+      const n=info.frames||info.entries||1;
+      for(let i=0;i<n;i++){
+        const c=document.createElement('div');c.className='card';
+        const st=document.createElement('div');st.className='stage';
+        const im=document.createElement('img');
+        im.src='/api/img?p='+enc(p)+'&i='+i+'&max=512';
+        const l=document.createElement('div');l.className='lbl';l.textContent='#'+i;
+        im.onerror=()=>{im.remove();l.textContent='空帧 #'+i};
+        st.appendChild(im);
+        im.onclick=()=>lightbox('/api/img?p='+enc(p)+'&i='+i);
+        c.append(st,l);box.appendChild(c);
+      }
+    }else if(ext(name)==='bin'){
+      const t=await j('/api/table?p='+enc(p)+'&limit=500');
+      $('#dmeta').textContent=meta(t.info)+'   '+p;
+      const tb=document.createElement('table');
+      const hr=document.createElement('tr');
+      t.columns.forEach(c=>{const th=document.createElement('th');th.textContent=c;hr.appendChild(th)});
+      tb.appendChild(hr);
+      t.rows.forEach(r=>{const tr=document.createElement('tr');r.forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});tb.appendChild(tr)});
+      box.appendChild(tb);
+    }else{
+      const t=await j('/api/text?p='+enc(p)+'&limit=200000');
+      $('#dmeta').textContent=meta(t)+'   '+p;
+      const pre=document.createElement('pre');pre.textContent=t.text;box.appendChild(pre);
+    }
+  }catch(e){$('#dmeta').textContent='读取失败 '+e}
+}
+
+function lightbox(src){
+  const lb=$('#lb');
+  $('#lbimg').src=src;
+  lb.hidden=false;
+}
+function closeLb(){
+  $('#lb').hidden=true;
+  $('#lbimg').removeAttribute('src');
+}
+$('#lb').onclick=closeLb;
+
+$('#pFirst').onclick=()=>{S.page=0;load()};
+$('#pPrev').onclick=()=>{S.page=Math.max(0,S.page-1);load()};
+$('#pNext').onclick=()=>{S.page=Math.min(S.pages-1,S.page+1);load()};
+$('#pLast').onclick=()=>{S.page=S.pages-1;load()};
+$('#pSize').onchange=e=>{S.size=+e.target.value;S.page=0;load()};
+function jump(){
+  const v=parseInt($('#pJump').value,10);
+  if(!v)return;
+  S.page=Math.max(0,Math.min(S.pages-1,v-1));
+  $('#pJump').value='';
+  load();
+}
+$('#pGo').onclick=jump;
+$('#pJump').onkeydown=e=>{if(e.key==='Enter')jump()};
+$('#kind').onchange=e=>{S.kind=e.target.value;S.page=0;load()};
+$('#dclose').onclick=()=>{ $('#detail').hidden=true; $('#dframes').innerHTML='' };
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if(!$('#lb').hidden){closeLb();return}
+    if(!$('#detail').hidden){$('#dclose').click();return}
+  }
+  if(!$('#detail').hidden||!$('#lb').hidden)return;
+  if(e.key==='ArrowLeft'&&S.page>0){S.page--;load()}
+  if(e.key==='ArrowRight'&&S.page<S.pages-1){S.page++;load()}
+});
+let t=null;
+$('#q').oninput=()=>{clearTimeout(t);t=setTimeout(()=>{S.page=0;load()},250)};
+boot();
+</script></body></html>
