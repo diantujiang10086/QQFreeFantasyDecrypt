@@ -588,6 +588,79 @@ python gsa.py show  "peticon\M5341.gsa" 0                 # 单文件调试
 python gsastat.py                                         # 按子目录聚合
 ```
 
+### `official\tile\`：地形过渡块（`.til`）与图素图集（`tileimg*.dat`）
+
+第三种/第四种容器的又两个：`.til` 的魔数是 `ELIT`（小端 "TILE"），`tileimg*.dat` 的魔数是
+`QQ  TILE`。它们都**不是** DIMG，也不属于 `.gsa`，需要各自解析。
+
+**目录构成**（`F:\...\official\tile`，扁平，186 文件 / 225 MB）：
+
+| 扩展名 | 数量 | 大小 | 说明 |
+|---|---|---|---|
+| `.til` | 126 | 142.6 MB | 一种地形一个文件（文件名 = `tile.ini` 里的中文地形名），每个 15–25 个 128×128 过渡块 |
+| `tileimg*.dat` | 14 | 78.4 MB | 64×64 图素图集（`tileimg` + `tileimg01..13`），共 4,788 块 |
+| `terrashp*.dat` | 14 | 7.95 MB | 每个 567,984 B，魔数 `RAYSTRSP`，**未解码** |
+| `.ini` | 32 | 20 KB | `tile.ini` / `tileset.ini` / `tilebase*.ini` / `tilelink*.ini` |
+
+**`.ini` 表**（同一目录，编码不同）：
+`tile.ini` 是 **UTF-16LE**，121 行 `NNNN  地形名`（地形 id ↔ 中文名，`0035/0036` 缺号，
+另有 5 个 `.til` 文件在表里没有条目）；
+`tilebase.ini`（GBK）注释「单一图素表」，32 行 `id 名称 R G B`（`00 深色草地 255 0 0`、
+`01 浅色草地 128 128 128`、`12 所有天空 0 0 0` …）；
+`tilelink.ini`（GBK）注释「图素连接表」，`id 图素一 图素二 说明`，即允许相邻的图素对；
+`tileset.ini`（GBK）分 `[file00]..[file14]`，每块若干 `(setNN)` + `name=<地图名>` + `link=<地形 id 列表>`。
+
+**`.til` 布局**：`magic(8) | u32 @4 = 12 | u32 @8 = 版本(4097/4098/4099) | u32 @12 = 条目数`，
+之后是若干 16 字节一行的表（第一字是地形/图素 id，其余多为 0，末尾几行是 `1` 和 `0xFFFFFF`），
+再接条目数据。**头部长度不用记死**：`header = size − n × 65,536`，实测只有
+`316`(36 个) / `324`(86) / `560`(3) / `16`(1) 四种，全部 8..4096，且与 `@12` 自洽。
+
+**条目 = 128×128 RGBA（65,536 B），内存序 `B,G,R,A`**。每个条目是「同一种地形材质 + 一块
+从不透明到透明的柔和过渡」，形状与朝向逐条目不同（左上角、右下角、整幅、窄条…），
+本质是**地形接缝/转角的混合块**。一块 128×128 恰好等于 2×2 个 64×64 图素的大小，
+而每文件 15–25 个条目也接近 2×2 地块的全部组合数 —— 推测每个条目对应「某地形在 2×2 地块
+组合中的覆盖形状」（这一点未经地图坐标系验证，但条目本身的解码与命名是确定的）。
+
+**`tileimg*.dat` 布局**：`magic(8) | u32 @8 = 0x10000 | @12 = 64 | @16 = 128 | @20 = 64 |
+@24 = 1 | @28 = 条目数 | 数据`，头部固定 **64 字节**，条目 = 64×64 RGBA（16,384 B）。
+`tileimg.dat` 开头 3 块是 `tilebase.ini` 的纯色（`#0` 黑 = 通天天空、`#1` 白、`#2` 红 = 深色草地），
+其余 1,013 块是贴图 —— **纯色块正好验证了 `B,G,R` 的字节序**（按 `rgb[0]=B` 换算后命中「255 0 0」）。
+
+```
+python tile.py census --csv out\tile.csv          # 126 til / 14 img，7,069 条目，0 失败
+python tile.py png   out\tile                     # 7,069 张 PNG（til_<id>/eNN.png、img_<name>/eNNNN.png）
+python tile.py sheet out\tile_sheet.png --step 3  # 地形过渡块总览（9 页）
+python tileimg_sheet.py 3                         # 图素图集总览（17 页）
+python mktile.py                                  # out\tile\index.html 浏览器页
+```
+
+合计 **7,069 张**（地形过渡块 2,281 + 图素 4,788）。浏览器页：
+`http://127.0.0.1:8791/tile/index.html`。
+
+**`terrashp*.dat`（结构已知、语义未定）**：魔数 `RAYSTRSP`，头部 48 字节
+（`@8 = 0x00010001`、`@12 = 48` = 头部长度、`@16 = 544` = 记录数），之后是 **544 条定长记录，
+每条 1,044 字节**（`544 × 1044 + 48 = 567,984` ✓，14 个文件长度完全相同）。
+
+每条记录的前 5 个字是 `(x, y, kind, n, 0)`，其余是 `n` 组「同一个值重复 4 次」的四元组：
+
+```
+rec   0: x=0   y=0   kind=255 n=5    payload 16,16,16,16 | 25,25,25,25 | 34,34,34,34 | 43,…
+rec 100: x=5   y=23  kind=4   n=1    payload 203,203,203,203
+rec 300: x=33  y=32  kind=12  n=2    payload 614×4 | 620×4
+rec 543: x=0xFFFFFFFF y=0xFFFFFFFF kind=255 n=0  payload 空   ← 终止/未用记录
+```
+
+- `kind` 取值集中在 `0..15`（各 31 条）与 `255`（48 条）；`n` ∈ 0..7（个别 10/11，另有 85 条固定 64 组）；
+- payload 的值域 8..1,047，`535/544` 条记录满足「四元组内 4 个值全等」；
+- 它不是位图：按 544×1044 或 544×522 的网格都渲染不出图案（97% 为 0）；
+- **也不是视频**：`ffprobe` 直接报 `Invalid data found`，文件里 MPEG-PS/ES 起始码
+  （`00 00 01 BA/B3/B8`、音频 `C0..DF`）出现 **0 次**，JPEG/PNG/Ogg/RIFF/zlib 等容器魔数同样 0 次，
+  且 14 个文件长度完全一致（视频不可能）。⇒ 是**一张定长记录表**，不是流媒体。
+
+推测它是「地图分块的形状/索引表」：每条记录给一个 `(x, y)` 坐标 + `kind` + 若干个 2×2 地块的
+形状索引，与 `.til` 每个条目盖住 2×2 地块的推测相呼应；但缺地图坐标系与 `kind` 语义的证据，
+**解码 `.til` / `tileimg` 不需要它**。探针脚本：`terrashp_probe.py`（记录拆分与统计）。
+
 ---
 
 ## 9. 尚未解决的部分
@@ -633,6 +706,9 @@ python gsastat.py                                         # 按子目录聚合
 | `official\res\*.gsa` 解析（`gsa.py census`） | **5,398/5,398 全部通过**，0 失败；10,989 帧、206,122 块、785.5 MB |
 | `official\res\*.gsa` 长度恒等式（`gsaverify.py`） | **5,398/5,398 成立**：`52 + n×tile + (n−1)×16 == size`，同时校验 2B/4B/块数/帧数四个字段 |
 | `res` 族 PNG 导出（`gsa.py png out\gsa`） | **10,989 张 PNG**，0 个文件被跳过；总览 `gsa_sheet-1..19.png`（1,800 个文件抽样） |
+| `official\tile` 解析（`tile.py census`） | **126 `.til` + 14 `tileimg*.dat` 全部通过**，0 失败；2,281 + 4,788 = **7,069 个条目**；头部长度 `{316:36, 324:86, 560:3, 16:1}` / `{64×14}`，全部与 `size − n×entry` 自洽 |
+| `official\tile` PNG 导出（`tile.py png out\tile`） | **7,069 张**（`til_<id>/eNN.png` 2,281 + `img_<name>/eNNNN.png` 4,788），0 个条目被跳过 |
+| `tileimg` 纯色块识别（`tileimgscan.py`） | `tileimg.dat` 前 3 块 = `tilebase.ini` 的黑/白/红，且 `rgb[0]=B` 换算后命中「深色草地 255 0 0」→ 再次确认 `B,G,R,A` 字节序 |
 
 
 ---
@@ -684,6 +760,10 @@ python gsastat.py                                         # 按子目录聚合
 | `gsaverify.py` | 用 `52 + n×tile + (n−1)×16 == size` 恒等式逐个校验 `.gsa` 头部字段（5,398/5,398） |
 | `gsastat.py` | 按顶层子目录聚合 `out/gsa.csv`（文件/字节/帧数/块数），并列出多块大图 |
 | `gsadump.py` / `gsatail.py` / `gsasolve.py` | `.gsa` 头部 u32 逐字段打印 / 头尾字节与候选帧长试除 / 早期布局假设评分（均为逆向过程留下的探针） |
+| `tile.py census\|png\|sheet\|show` | **`official\tile` 解析器**：`.til`（`ELIT`）+ `tileimg*.dat`（`QQ  TILE`）；`census`→`--csv`、`png DIR`（7,069 张）、`sheet PNG`、`show <idx>` |
+| `tileimg_sheet.py [--step N]` | `tileimg*.dat` 的 64×64 图素总览图（17 页） |
+| `mktile.py` | 生成 `out/tile/index.html`（140 个容器、7,069 帧，含中文地形名与 `tile.ini` id） |
+| `tileini.py` / `tileparse.py` / `tileimgscan.py` / `tilefit.py` / `tilhdr.py` / `tilrender.py` / `tilsheet.py` | tile 族逆向探针：ini 转储 / 容器模型校验 / 纯色块识别（验证 `B,G,R`）/ 条目尺寸拟合 / 头部变体转储 / 早期单条渲染与按索引总览 |
 
 ---
 
