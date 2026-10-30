@@ -49,10 +49,10 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out')
 
 # version (major.minor[.patch]) -> int32 words, from main.py
 # GetStartOffset / GetMultiOffset.  Used only as a fast-path hint.
-GET_START = {'1.36': 17, '2.36': 17, '4.36.5': 29, '5.36': 19, '4.36': 19,
-             '1.24': 14}
-GET_MULTI = {'2.36': 24, '4.36.5': 24, '5.36': 10, '4.36': 10, '1.36': 7,
-             '1.24': 7}
+GET_START = {'1.36': 17, '2.36': 17, '3.36': 18, '4.36.5': 29, '5.36': 19,
+             '4.36': 19, '1.24': 14}
+GET_MULTI = {'2.36': 24, '4.36.5': 24, '5.36': 10, '4.36': 10, '3.36': 10,
+             '1.36': 7, '1.24': 7}
 DEF_MULTI = 24
 MAX_OH = 256
 
@@ -88,7 +88,7 @@ def sig_at(d, p):
     if p < 0 or p + 16 > len(d):
         return None
     w, h, s, f = u32(d, p), u32(d, p + 4), u32(d, p + 8), u32(d, p + 12)
-    if 1 <= w <= 8192 and 1 <= h <= 8192 and f in (1, 2) and s == 2 * f * w:
+    if 1 <= w <= 16384 and 1 <= h <= 16384 and f in (1, 2) and s == 2 * f * w:
         return w, h, 2 * f
     return None
 
@@ -118,6 +118,16 @@ def hints(h):
         if key in GET_START:
             out.append((24 + 4 * GET_START[key], 4 * GET_MULTI[key],
                         f'{key}->{GET_START[key]}/{GET_MULTI[key]}'))
+    # The old 1.24 / 3.36 files write a variable number of words between the
+    # preamble and the first record, so GetStartOffset from main.py does not
+    # always hold.  Measured on the library: 3.36 uses 16 / 18 / 20 words
+    # (fp = 88 / 96 / 104), 1.24 uses 14 or 16 (fp = 80 / 88).  `finish`
+    # validates every candidate end-to-end, so a wrong guess costs nothing.
+    if ver in ('1.24', '3.36'):
+        for n in (15, 16, 17, 18, 19, 20, 21):
+            if n != GET_START.get(ver):
+                out.append((24 + 4 * n, 4 * GET_MULTI[ver],
+                            f'{ver}/fp-variant={n}'))
     if not out:
         out.append((24 + 4 * 17, 4 * DEF_MULTI, 'default->17/24'))
     if h['major'] == 4 and h['minor'] == 36:
@@ -177,7 +187,7 @@ def finish(d, h, first_px, oh, tag):
         # the direction table (weaponr37261/37152/37257).  Parse the shorter
         # grid, then account for the trailing frame.
         f2, ok2, _ = walk(d, first_px, oh, h['n_frames'] - 1)
-        if ok2:
+        if ok2 and f2:
             last_pre, lw, lh, lpx, lbpp = f2[-1]
             endx = last_pre + oh + (0 if lpx is None else lbpp * lw * lh)
             if endx + 12 == len(d) - 12 * h['n_dirs']:
@@ -187,14 +197,19 @@ def finish(d, h, first_px, oh, tag):
                     ok = True
     if not ok:
         return None, f'{tag}: {why}'
+    if not frames:
+        return None, f'{tag}: no frames (header says n_frames={h["n_frames"]})'
     skipped = sum(1 for f in frames if f[3] is None)
     last_pre, lw, lh, lpx, lbpp = frames[-1]
     end = last_pre + oh + (0 if lpx is None else lbpp * lw * lh)
     tail = len(d) - end
     # measured rule (29/29 files, oh in 28..96):
     #   tail == 12*nDirs + (oh - 28)
+    # The object\ scenery files show the second, simpler form of the same
+    # rule: tail == 12*nDirs (no extra trailer).  Both are accepted, and
+    # `extra` records whatever is actually there.
     want_tail = 12 * h['n_dirs'] + (oh - 28)
-    if tail != want_tail:
+    if tail not in (want_tail, 12 * h['n_dirs']):
         return None, f'{tag}: tail {tail} != {want_tail} ' \
                      f'(12*{h["n_dirs"]}+{oh - 28})'
     d_ok, counts = dir_table(d, h['n_dirs'], h['n_frames'])
@@ -226,6 +241,17 @@ def finish(d, h, first_px, oh, tag):
             d_ok, counts = True, []
             note = (f'dir table region ({12 * h["n_dirs"]} bytes) is all '
                     f'zeros: no frame->direction map, exported ungrouped')
+    if not d_ok:
+        # object\ scenery: a single direction needs no table at all, so the
+        # 12-byte slot carries the pivot instead -- (cx, cy, 0), the very same
+        # numbers as preamble words 5 and 6 (76/78 measured files).
+        if h['n_dirs'] == 1 and len(d) >= 12:
+            cx, cy = u32(d, 44), u32(d, 48)
+            t = (u32(d, len(d) - 12), u32(d, len(d) - 8), u32(d, len(d) - 4))
+            if (cx or cy) and t == (cx, cy, 0):
+                d_ok, counts = True, []
+                note = ('12-byte trailer is the pivot (cx, cy, 0), not a '
+                        'direction table: single direction, exported ungrouped')
     if not d_ok:
         return None, (f'{tag}: dir table bad (tail {tail} '
                       f'for {h["n_dirs"]} dirs)')

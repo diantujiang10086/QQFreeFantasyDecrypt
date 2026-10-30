@@ -21,6 +21,10 @@ GROUPS = [
     ('avatar\\face', 'face_sheet-*.png', '318 个表情，方向 1 第 0 帧'),
     ('avatar\\weaponl', 'weaponl_sheet-*.png', '1,997 个左手武器，方向 1 第 0 帧'),
     ('avatar\\weaponr', 'weaponr_sheet-*.png', '9,631 个右手武器（抽样 1/16 → 602 个）'),
+    ('item\\item', 'item_sheet-*.png', '7,402 个物品图标（30×30 为主，抽样 1/4）'),
+    ('item\\itempic', 'itempic_sheet-*.png', '6,702 张物品大图（70×90 为主，抽样 1/4）'),
+    ('magic\\magic', 'magic_sheet-*.png', '2,612 个技能特效（抽样 1/8，每格并排最多 4 帧）'),
+    ('official\\object', 'object_sheet-*.png', '19,160 个场景物件（34 个子类，抽样 1/20，每格并排最多 2 帧）'),
 ]
 
 

@@ -359,6 +359,109 @@ oh = 4 * GET_MULTI[版本] + (8 * w1 if w0 == 1 else 0)
 `--limit` 限制数量）→ `out/<dir>/<stem>/d<dir>_<frame>.png`；`python avaexport.py --sheet out\face_sheet face`
 → `out/face_sheet-1..4.png`。普查：`python avacensus.py --csv out\ava_cap.csv cap`。
 
+### `item\` 与 `magic\`：同一容器，换了个扩展名（`.gso`）
+
+`item\item`、`item\itempic`、`magic\magic` 三个目录里全是 **`.gso`**，但字节结构就是 DIMG 容器
+（同样以 `51 51 46 1a 44 49 4d 47` = `QQF\x1aDIMG` 开头），**`dimg.parse` 不改一行就能读**。
+它们用的是 4.36 / 3.36 / 1.36 / 1.24 四种版本，`oh` 分别是 40 / 40 / 28 / 28：
+
+| 目录 | 文件 | 版本分布 | `oh` | 每文件帧数 | 总帧数 | 空帧 | 像素字节 | 精灵尺寸特征 |
+|---|---|---|---|---|---|---|---|---|
+| `item\item` | 7,402 | 4.36→7,334、3.36→68 | 40 | **恒 1** | 7,402 | 0 | 16.3 MB（原文件 17.2 MB） | 图标：`30×30`×1,355、`32×32`×647、`29×30`×195… |
+| `item\itempic` | 6,702 | 4.36→6,695、3.36→7 | 40 | **恒 1** | 6,702 | 0 | 53.3 MB（54.1 MB） | 大图：`70×90`×271、`70×80`×47、`70×88`×42… |
+| `magic\magic` | 2,614 | 4.36→2,180、1.36→346、1.24→80、3.36→8 | 40 / 28 | 1 … **275** | 33,959 | 527 | 1,629.4 MB（1,630.9 MB） | 特效帧：`69×35`、`300×300`、`256×256`、`77×178`… |
+
+* **`item` 与 `itempic` 是「同一批 id 的两套图」**：数字 id 范围都是 `0014…9753`，6,619 个 id 两边都有，
+  783 个只有 `item`（小图标）、83 个只有 `itempic`（大图）。文件名只差前缀（`item0014` ↔ `itempic0014`）。
+* **`magic` 是技能特效**：2,487 个文件是「1 方向 × F 帧」，126 个是 5 方向、1 个 8 方向；
+  帧数分布 `1→426, 8→308, 10→263, 6→166, 20→156, 15→122, 12→100, 30→81, 16→81, 4→71, 24→67`，
+  最长 275 帧；683 个文件带 `_NN` 后缀（同一技能的多段，如 `magic0001_01…_05`，共 134 个这样的组）。
+  最大的几个：`magic8058.gso` 23.8 MB / 30 帧、`magic9200.gso` 21.1 MB / 75 帧、`magic8296` 11.0 MB / 16 帧。
+* 目录里的**旁证文件**（都不是 DIMG）：`item\itempic\filter.xml`（201,930 B，`<File ClassName="…">`
+  共 **5,622** 条，全部都能找到对应文件；另有 1,080 个文件不在表里）、`item\itempic\filelist.txt`（0 B）、
+  `magic\magic\_info_.txt`（4 B，内容 `9911`）、`magic\magic\TFX9642.eff`（223 B，Lua 风格的效果描述：
+  `(9, [ [ (7421, ('magic7421', 0, 100, 10), (1,), (0,), 1, (0,0)), [ [0, ((0,0,0),(1,1),0,(255,255,255),1)], [1000, …] ] ] …, [0,0,])`
+  ——引用的 `magic7421` 确实存在）、15 个 `magic8053_1..15.tga`（未压缩 32 位真彩 TGA，
+  如 321×278 → `18 + 321*278*4 = 356,970` 字节，正好等于文件大小，是粒子贴图而不是帧数据）。
+* `item\item` 里还有一个 **`svn-2D2CD46`**（无扩展名，3,160 B）——其实也是一个 DIMG（4.36、26×28），
+  SVN 的临时文件，解析时按扩展名过滤掉了。
+
+**新加的一条版本表项（`dimg.py`）**：`GET_START['3.36'] = 18`、`GET_MULTI['3.36'] = 10`
+（`fp = 24 + 4*18 = 96`、`oh = 40`）。加之前 `magic4063.gso`（167,492 B）和 `magic4067.gso`（621,586 B）
+解析不出来：它们的第 0…3 / 0…1 条记录是「空记录」，但空记录里仍写了锚点字（`-39,-16` / `-8,-7`），
+所以 `hints()` 给的 `(fp=92, oh=96)` 和暴力搜索都没命中；补上 3.36 后两个文件都正常解析
+（21 帧 / 空 4、26 帧 / 空 2，`tail=24`、`extra=12`）。改完 `selftest.py` 仍 **38 ok / 0 failed**。
+
+导出/看图：`python gso.py png "<…>\item\item" out\item`（`item` 7,402 张、`itempic` 6,702 张全部导出）、
+`python gso.py png "<…>\magic\magic" out\magic --step 8`（327 个文件 → 3,853 张）、
+`python gso.py sheet "<…>\item\item" out\item_sheet.png --step 4 --cols 20 --per-page 200`
+（→ `item_sheet-1..10.png`，每页 200 格）、`itempic_sheet-1..11.png`（`--cols 16 --per-page 160`）、
+`magic_sheet-1..4.png`（`--step 8`，每格并排最多 4 个不同尺寸的帧）。
+
+### `official\object\`：地图/场景物件（34 个子类）
+
+`object\` 不在 `avatar\` 下，是场景物件库：34 个子目录（`YB`/`JZ`/`JZP`/`NT`/`SM`/`ZW`/`DH`/`CCP`/`SK`…），
+合计 **33,927 个文件 / 7,211.0 MB**。文件构成：
+
+| 扩展名 | 个数 | 字节 | 说明 |
+|---|---|---|---|
+| `.gso` | **19,160** | 7,184.8 MB | DIMG 容器（与 item/magic 同格式） |
+| `.mask` | 14,743 | 8.9 MB | 旁挂数据，**不是图像**，与同名 `.gso` 配对 |
+| `.tga` | 17 | 17.2 MB | 未压缩 32 位真彩贴图（粒子/光效） |
+| `.ini` | 4 | — | `DH\DHConfig.ini`，逐帧播放间隔 |
+| `.bat` | 2 | — | `JZP\ren.bat` 批量改名脚本 |
+| `.rar` | 1 | — | 素材包 |
+
+**结论：这 19,159 个 `.gso` 全部能用 `dimg.py` 原样解析（0 失败）**，不需要 head 那种搜链；
+唯一的 `DX\DX_DFYW_0301.gso`（1,358 B）其实是 `.mask` 载荷被改成了 `.gso` 后缀（头是 `FF FF FF FF 02 00 01 00`），
+已单独归为 `not-dimg`。
+
+| 指标 | 值 |
+|---|---|
+| 解析成功 | **19,159 / 19,159**（+1 个 not-DIMG） |
+| 版本 | `3.36` **18,522**、`1.24` **637** |
+| `oh` | `40`:18,519、`28`:383、`24`:253、`44`:2、`80`:1、`96`:1 |
+| 解析方法 | `version-table` 16,698、`brute` 2,457、`empty-records` 4 |
+| 帧 | 23,080（空帧 4），像素 7,182.2 MB |
+| `n_dirs` | 全部为 **1**（场景物件没有朝向），18,727 个文件每方向 1 帧；多帧组最多 15 帧/方向 |
+| 典型尺寸 | `300×300` 3,122、`450×450` 1,823、`512×512` 450、`510×510` 217（地形拼块） |
+| 最大文件 | `YB_YLXS_0170` 25.7 MB（**9,867×652 全景**）、`DH_MLYW_0103` 22.3 MB、`DH_MC_4704` 16.3 MB |
+| `.gso`/`.mask` 配对 | both 14,738、只有 `.gso` 4,422、只有 `.mask` 5 |
+
+**为解析 `object\` 在 `dimg.py` 里放宽的五处**（都过了 `selftest.py` 38/38）：
+
+1. `finish()`：空 `frames` 不再 IndexError，返回 `no frames (header says n_frames=…)`。
+2. `hints()`：`1.24` / `3.36` 的 preamble 长度不固定 —— 实测需要 **15…21 个 word**
+   （`fp = 24+4n` = 84…108），为这两个版本各追加 7 个候选（`{ver}/fp-variant={n}`）。
+   证据：`DH\DH_HSTX_0101.gso`（2.88 MB）签名在 92、需 `fp=108`；`CCP_RCC_0109` 用 `fp=104`；`CCP_CL_0101` 用 `fp=88`。
+3. 文件尾公式放宽为两种合法形状：`tail ∈ {12·n_dirs + (oh−28), 12·n_dirs}`
+   —— object 的 3.36 文件**没有**那 12 字节 extra。
+4. 新增第 5 条例外「方向表缺失」：`n_dirs == 1` 且文件尾 12 字节 `(u32, u32, 0)` 正好等于
+   preamble 的 `(cx, cy)` → 那 12 字节是 **pivot**，不是方向表；`dir_counts = []`，
+   `dir_note = '12-byte trailer is the pivot (cx, cy, 0)…'`。命中 **76/78** 个 `DH_HSTX*` 文件。
+5. `sig_at()` 的宽高上限 8192 → **16384**：`YB_YLXS_0170` 是 9,867×652 的全景图（`fp=104`、`bpp=4`、`tail=24`）。
+
+**`DHConfig.ini`（`DH\` 目录，另有 3 个副本）**：363 个节，节名就是 `.gso` 文件名，每节只有一个键
+`TimeSpan=<毫秒>`；直方图 `100:237, 200:31, 150:17, 300:16, 500:13, 180:12, 400:11, 220:5, 250:5, 330:4`
+→ **动画物件的逐帧播放间隔**（物件本身没有 fps 字段）。有 5 个节引用的 `.gso` 不存在
+（`DH_HYY_001`、`DH_MC04_0`、`DH_MC_4907`、`DH_SW_0101`、`DH_SW_0102`）。
+
+**`.mask`（14,743 个）目前只解到「外形」**：8 字节头 `FF FF FF FF | 02 00 | 01 00`，随后 48 字节零区，
+数据从 **偏移 56** 开始，是一串「值 × 65536」形态的小整数（取值 4/10/15/25/35/45/55/65/75…，都是 5 的倍数），
+尾部若干 `0x80`。934 种大小里 11,626 个是最小的 **62 字节**，另有 69 个只有 4 字节；
+`(size−8) % 9 == 0` 覆盖 896/934 种（62 = 8+6·9、98 = 8+10·9、197 = 8+21·9），但按 9 字节记录读字段不自洽
+→ **语义未定**，只确定它是与 `.gso` 同名的旁挂数据（疑似遮挡/碰撞轮廓），**解码图像不需要它**。
+
+导出与看图：
+
+```
+python obj.py census --csv out\obj.csv                     # 244 s，19,159 ok / 0 fail
+python gso.py png   "<…>\object" out\object --step 20 --recursive
+python gso.py sheet "<…>\object" out\object_sheet.png --step 20 --per-page 96 --cols 12 --recursive
+```
+
+(`gso.py` 本轮加了 `--recursive` / `--limit`，输出子目录用相对路径、标签也用相对路径，跨子目录重名不会冲突。)
+
 ---
 
 ## 9. 尚未解决的部分
@@ -395,6 +498,10 @@ oh = 4 * GET_MULTI[版本] + (8 * w1 if w0 == 1 else 0)
 | `avatar\cap` / `face` / `weaponl` / `weaponr` 解析（`avacensus.py`） | **12,573/12,573 全部通过**（cap 627、face 318、weaponl 1,997、weaponr 9,631），`oh` 恒 40、`dir_counts` 恒 `[F,F,F,F,F]`，0 失败 |
 | `cap` / `face` / `weaponl` PNG 导出（`avaexport.py --png`） | **4,369 / 1,427 / 42,752 张**，0 个文件被跳过；`weaponr` 抽样 602 文件 → 14,155 张 |
 | `selftest.py` 回归（每改一次 `dimg.py`） | **38 ok / 0 failed**（新增 `empty-records` 与「尾帧在填充区」两条规则后仍全过） |
+| `item\item` / `item\itempic` / `magic\magic` 解析（`gso.py census`） | **16,718/16,718 全部通过**（item 7,402、itempic 6,702、magic 2,614），0 失败；`oh` 40 / 40 / 40∪28 |
+| 上面三个目录的 PNG 导出 | `item` **7,402 张**、`itempic` **6,702 张**、`magic` 抽样 327 个文件 → **3,853 张**，0 个文件被跳过 |
+| `official\object` 解析（`obj.py census`，244 s） | **19,159/19,159 全部通过** + 1 个 `not-dimg`（`.mask` 载荷），0 失败；23,080 帧、7,182.2 MB 像素；版本 3.36 18,522 / 1.24 637 |
+| `official\object` 抽样导出（`--step 20`） | **958 个文件 → 1,193 张 PNG / 108.2 MB**（各帧独立命名，最大 `NT_TJFB_0125` 1024×768）；总览图 `object_sheet-1..10.png`（每页 96 格） |
 
 
 ---
@@ -432,6 +539,11 @@ oh = 4 * GET_MULTI[版本] + (8 * w1 if w0 == 1 else 0)
 | `avaexport.py --png DIR ` / `--sheet PNG` / `--stats` | cap/face/weaponl/weaponr 通用导出器：按方向表命名 `d<dir>_<k>.png`（不可用时扁平 `f%04d.png`）、每页 96 格总览图、统计（dir 模式/尺寸直方图/最大画布/pivot 越界）；支持 `--step N`、`--limit N` |
 | `mksheets.py` | 把 `out/*_sheet*.png` 汇总成画廊页 `out/sheets/index.html`（head/backpack/cap/face/weaponl/weaponr 共 22 页） |
 | `countframes.py <avacensus.csv> <dir>` | 逐文件重新解析，统计帧数/空帧/像素字节（`weaponr` 全量：223,004 帧、19 空帧、1.72 GB 像素） |
+| `gso.py census\|png\|sheet` | **任意目录**的 DIMG 文件（`.gso`/`.gsn`）普查 / 导出 PNG / 总览图；`census` 支持 `--csv`，`png`/`sheet` 支持 `--step`，`sheet` 另有 `--cols`/`--per-page`/`--picks`（每格并排几个不同尺寸的帧） |
+| `gsorel.py` | `item` ↔ `itempic` 的 id 配对、`filter.xml` 对照、`magic` 的 `_NN` 分段与 `.eff` 引用检查 |
+| `magicstat.py` | 从 `out/gso.csv` 汇总 `magic` 的 `n_dirs`/帧数直方图与最大文件清单 |
+| `obj.py census\|png\|sheet\|mask` | `official\object` 专用：**递归**遍历 34 个子目录、`dimg.parse`（非 DIMG 文件单独记 `not-dimg`）、导出 PNG、总览图、`.mask` 抽样 |
+| `objstat.py` | 只读 24 B 头的超快普查（版本/`n_dirs`/头 `n_frames`）、`.gso`↔`.mask` 配对统计、`.mask` 抽样 |
 
 ---
 
