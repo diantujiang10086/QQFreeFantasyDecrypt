@@ -11,6 +11,7 @@ import os
 import posixpath
 import struct
 import threading
+import time
 import urllib.parse
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +22,7 @@ import dimg
 import effimg
 import gsa
 import headtool
+import maps
 import pkg
 import tile
 import zipbin
@@ -30,7 +32,7 @@ DATA = r'F:\WG自由幻想\自由幻想\data'
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIELDS_CSV = os.path.join(HERE, 'out', 'zipbin_fields.csv')
 
-IMAGE_EXT = {'.gsn', '.gso', '.gsa', '.til', '.dat', '.tga', '.bmp', '.png', '.jpg', '.jpeg', '.eff'}
+IMAGE_EXT = {'.gsn', '.gso', '.gsa', '.til', '.dat', '.tga', '.bmp', '.png', '.jpg', '.jpeg', '.eff', '.map'}
 TABLE_EXT = {'.bin'}
 
 
@@ -79,6 +81,7 @@ def listdir(rel):
 
 # ---------------------------------------------------------------- pkg 内存索引
 _PKG_IDX = None
+_PKG_PATHS = []
 _PKG_LOCK = threading.Lock()
 
 
@@ -88,9 +91,13 @@ def pkg_index():
         with _PKG_LOCK:
             if _PKG_IDX is None:
                 idx = {}
-                for path, ver, ents, err in pkg.catalog():
-                    for e in ents:
-                        idx[e['key']] = (path, e)
+                paths = []
+                for path, ver, k, err in pkg.catalog():
+                    paths.append(path)
+                    pi = len(paths) - 1
+                    for j in range(k.count):
+                        idx[k.key_at(j)] = (pi, j)
+                _PKG_PATHS[:] = paths
                 _PKG_IDX = idx
     return _PKG_IDX
 
@@ -109,7 +116,15 @@ def pkg_hit(rel):
     key = pkg_key(rel)
     if key is None:
         return None
-    return pkg_index().get(key)
+    hit = pkg_index().get(key)
+    if not hit:
+        return None
+    pi, j = hit
+    path = _PKG_PATHS[pi]
+    try:
+        return (path, j)
+    except Exception:            # noqa: BLE001
+        return None
 
 
 def src_bytes(rel):
@@ -124,13 +139,16 @@ def src_bytes(rel):
     return pkg.pkg(hit[0]).read_entry(hit[1])
 
 
-_MAGIC = {}
+_MAGIC = OrderedDict()
+_MAGIC_MAX = 96          # 只缓存最近用到的精灵字节，避免把整库 magic 读进内存
 
 
 def magic_bytes(fname):
     """.eff 里引用的精灵（`magic144` → pkg `magic/magic0144.gso`）的字节。"""
-    if fname in _MAGIC:
-        return _MAGIC[fname]
+    hit = _MAGIC.get(fname)
+    if hit is not None:
+        _MAGIC.move_to_end(fname)
+        return hit
     d = None
     for rel in ('magic/' + fname, 'magic/magic/' + fname):
         try:
@@ -142,10 +160,12 @@ def magic_bytes(fname):
         try:
             hit = pkg.find(fname)
             if hit:
-                d = pkg.pkg(hit[0]).read_entry(hit[1])
+                d = pkg.pkg(hit[0]).read_at(hit[1])
         except Exception:
             d = None
     _MAGIC[fname] = d
+    while len(_MAGIC) > _MAGIC_MAX:
+        _MAGIC.popitem(last=False)
     return d
 
 
@@ -168,19 +188,33 @@ def cats():
                 continue
             agg[key] = agg.get(key, 0) + 1
         _CATS = [{'k': k, 'n': k.split('/')[-1], 'c': v} for k, v in sorted(agg.items())]
+        # map 目录里的 .gsm/.msk/.npc 不是图片，改成「地图」虚拟分类：
+        # 用 res/sketchmap 的示意图做底图，叠 .msk 碰撞格与 .lst 怪物点。
+        n_map = len(maps.stems_with_sketch())
+        _CATS = [{'k': 'map!', 'n': 'map', 'c': n_map}] + [c for c in _CATS if c['k'] != 'map']
     return _CATS
 
 
 def _iter_files(rel):
     """(相对路径, 字节数)：pkg 索引 + 磁盘目录。"""
+    if rel.startswith('map!'):
+        for name in maps.stems_with_sketch():
+            yield name + '.map', 0
+        return
     key = pkg_key(rel)
     if key is not None:
         prefix = (key + '/') if key else ''
-        for k, (pp, e) in pkg_index().items():
+        ent = pkg_index()
+        for k, hit in ent.items():
             if k.startswith(prefix):
                 sub = k[len(prefix):]
-                if sub:
-                    yield sub, e['raw']
+                if not sub:
+                    continue
+                try:
+                    sz = pkg.pkg(_PKG_PATHS[hit[0]]).raw_at(hit[1])
+                except Exception:        # noqa: BLE001
+                    sz = 0
+                yield sub, sz
     p = safe(rel)
     if os.path.isdir(p):
         for dirpath, _dn, filenames in os.walk(p):
@@ -192,6 +226,15 @@ def _iter_files(rel):
                 except OSError:
                     sz = 0
                 yield sub, sz
+
+
+def full_path(rel, name):
+    """列表条目 → 可直接传给 /api/img / /api/info 的相对路径。"""
+    if not rel:
+        return name
+    if rel.endswith('!'):            # 虚拟分类：条目名不带前缀，补上 rel 本身（如 map!qw0001.map）
+        return rel + name
+    return rel.rstrip('/') + '/' + name
 
 
 def files_page(rel, kind='img', page=0, size=200, q=''):
@@ -207,9 +250,14 @@ def files_page(rel, kind='img', page=0, size=200, q=''):
             continue
         if bl and sub in bl:
             continue
-        if ql and ql not in sub.lower():
-            continue
-        rows.append({'n': sub, 's': sz})
+        if ql:
+            title = maps.display_name(sub[:-4]).lower() if rel == 'map!' else ''
+            if ql not in sub.lower() and ql not in title:
+                continue
+        row = {'n': sub, 's': sz, 'p': full_path(rel, sub)}
+        if rel == 'map!':
+            row['t'] = maps.display_name(sub[:-4])
+        rows.append(row)
     rows.sort(key=lambda d: d['n'].lower())
     total = len(rows)
     pages = max(1, (total + size - 1) // size)
@@ -241,7 +289,12 @@ def _png(img):
 
 
 _IMG_CACHE = OrderedDict()
-_IMG_CACHE_MAX = 400
+_IMG_CACHE_MAX = 240
+_IMG_CACHE_BYTES = 0
+_IMG_CACHE_BUDGET = 96 * 1024 * 1024      # 96 MB 上限，防止大图把内存吃光
+_IMG_CACHE_ITEM_MAX = 2 * 1024 * 1024     # 单张超过 2 MB 不缓存
+_EFF_THUMBS = {}          # (rel, i, max) -> PNG bytes，特效缩略图专用、不淘汰
+_MAP_IMG = OrderedDict()  # (name, w, col, mon, npc) -> 地图大图 PNG
 _INFO_CACHE = OrderedDict()
 
 _EFF_BLANK = {}          # rel -> True/False（整条特效在采样时刻是否全透明）
@@ -264,13 +317,43 @@ def eff_blank_set():
     return _EFF_BLANK_SET
 
 
+_EFF_BOX_FILE = os.path.join(HERE, 'out', 'eff_box.json')
+_EFF_BOXES = None
+_FULL_FRACS = (0.0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.0)
+_CHEAP_FRACS = (0.0, 0.35, 0.7, 1.0)
+
+
+def eff_boxes():
+    """out/eff_box.json：每条特效的共享画布（effboxes.py 预计算）。"""
+    global _EFF_BOXES
+    if _EFF_BOXES is None:
+        try:
+            with open(_EFF_BOX_FILE, encoding='utf-8') as fh:
+                _EFF_BOXES = json.load(fh)
+        except Exception:       # noqa: BLE001
+            _EFF_BOXES = {}
+    return _EFF_BOXES
+
+
+def eff_box_of(rel, txt, cheap=False):
+    """特效的共享画布：内存缓存 → out/eff_box.json → 现算（缩略图用少量采样）。"""
+    mem = effimg._BOX
+    if rel in mem:
+        return mem[rel]
+    hit = eff_boxes().get(rel)
+    if hit:
+        box = tuple(hit)
+        mem[rel] = box
+        return box
+    fr = _CHEAP_FRACS if cheap else _FULL_FRACS
+    return effimg.effect_box(txt, magic_bytes, key=rel, fracs=fr)
+
+
 def eff_blank(rel):
     """整条 .eff 在采样时刻是否完全没有可见像素（用于「空特效不显示」）。"""
     hit = _EFF_BLANK.get(rel)
     if hit is not None:
         return hit
-    if rel == 'effect/tfx8037.eff':
-        print(123)
     txt = src_bytes(rel).decode('gbk', 'replace')
     ms = effimg.duration(txt)
     blank = True
@@ -286,8 +369,67 @@ def eff_blank(rel):
     return blank
 
 
+def map_name(rel):
+    """`map!qw0001.map` -> `qw0001`。"""
+    return rel[4:].rsplit('.', 1)[0] if rel.startswith('map!') else rel
+
+
+def map_img(rel, w=1400, col=True, mon=True, npc=True):
+    """地图大图：示意图 + 碰撞格 + 怪物/NPC 点（带 LRU）。"""
+    name = map_name(rel)
+    key = (name, int(w), bool(col), bool(mon), bool(npc))
+    hit = _MAP_IMG.get(key)
+    if hit is not None:
+        return hit
+    im = maps.render(name, width=int(w), collision=bool(col), mon=bool(mon), npc_pts=bool(npc))
+    if im is None:
+        raise LookupError('map has no sketch image')
+    body = _png(im)
+    _MAP_IMG[key] = body
+    while len(_MAP_IMG) > 24:
+        _MAP_IMG.popitem(last=False)
+    return body
+
+
 def img_bytes(rel, i, mx):
     """PNG 字节（只解第 i 帧，带 LRU 缓存）。"""
+    global _IMG_CACHE_BYTES
+    if rel.startswith('map!'):
+        name = map_name(rel)
+        key = ('mapthumb', name, mx)
+        hit = _IMG_CACHE.get(key)
+        if hit is not None:
+            return hit
+        im = maps.sketch(name)
+        if im is None:
+            raise LookupError('map has no sketch image')
+        im = im.convert('RGBA')
+        if mx > 0 and max(im.width, im.height) > mx:
+            im = im.copy()
+            im.thumbnail((mx, mx), Image.NEAREST)
+        body = _png(im)
+        _IMG_CACHE[key] = body
+        _IMG_CACHE_BYTES += len(body)
+        return body
+    ext = _ext(rel)
+    is_eff = ext in ('.eff', '.eff_')
+    if is_eff and 0 < mx <= 256:
+        # effect thumbnails are expensive to build and there are ~1.5k of them,
+        # so keep them in a dedicated (uncapped) dict that the warm-up thread
+        # can fill in the background
+        key2 = (rel, i, mx)
+        hit = _EFF_THUMBS.get(key2)
+        if hit is not None:
+            return hit
+        body = _img_bytes_cached(rel, i, mx)
+        _EFF_THUMBS[key2] = body
+        while len(_EFF_THUMBS) > 600:
+            _EFF_THUMBS.pop(next(iter(_EFF_THUMBS)))
+        return body
+    return _img_bytes_cached(rel, i, mx)
+
+
+def _img_bytes_cached(rel, i, mx):
     key = (rel, i, mx)
     hit = _IMG_CACHE.get(key)
     if hit is not None:
@@ -295,7 +437,7 @@ def img_bytes(rel, i, mx):
         return hit
     if _ext(rel) in ('.eff', '.eff_') and eff_blank(rel):
         raise LookupError('empty effect (no visible pixel at any sampled time)')
-    im = frame_image(rel, i)
+    im = frame_image(rel, i, mx)
     if im is None:
         raise LookupError('no such frame')
     if _ext(rel) in ('.eff', '.eff_') and effimg.blank(im):
@@ -304,9 +446,17 @@ def img_bytes(rel, i, mx):
         im = im.copy()
         im.thumbnail((mx, mx), Image.NEAREST)
     body = _png(im)
-    _IMG_CACHE[key] = body
-    while len(_IMG_CACHE) > _IMG_CACHE_MAX:
-        _IMG_CACHE.popitem(last=False)
+    if len(body) <= _IMG_CACHE_ITEM_MAX:
+        global _IMG_CACHE_BYTES
+        old = _IMG_CACHE.pop(key, None)
+        if old is not None:
+            _IMG_CACHE_BYTES -= len(old)
+        _IMG_CACHE[key] = body
+        _IMG_CACHE_BYTES += len(body)
+        while _IMG_CACHE and (len(_IMG_CACHE) > _IMG_CACHE_MAX
+                              or _IMG_CACHE_BYTES > _IMG_CACHE_BUDGET):
+            _k, _v = _IMG_CACHE.popitem(last=False)
+            _IMG_CACHE_BYTES -= len(_v)
     return body
 
 
@@ -329,6 +479,14 @@ def info_of(rel):
 
 def _info_of(rel):
     ext = _ext(rel)
+    if rel.startswith('map!'):
+        name = map_name(rel)
+        mi = maps.info(name)
+        return {'bytes': 0, 'ext': '.map', 'kind': 'map', 'name': name, 'frames': 1,
+                'title': maps.display_name(name),
+                'fit': maps.fit(name),
+                'world': [mi['w'], mi['h']], 'cells': mi['cells'], 'cell': mi['cell'],
+                'sketch': mi['sketch'], 'monsters': mi['monsters'], 'npcs': mi['npcs']}
     d = src_bytes(rel)
     info = {'bytes': len(d), 'ext': ext,
             'origin': 'disk' if os.path.isfile(safe(rel)) else 'pkg'}
@@ -386,7 +544,7 @@ def _info_of(rel):
     raise ValueError('unsupported ' + ext)
 
 
-def frame_image(rel, i):
+def frame_image(rel, i, mx=0):
     """只解第 i 帧（不构造其它帧）。"""
     ext = _ext(rel)
     d = src_bytes(rel)
@@ -444,12 +602,35 @@ def frame_image(rel, i):
         fr = effimg.FRACS
         if not 0 <= i < len(fr):
             raise LookupError('frame')
+        thumb = 0 < mx <= 256
         # all frames of one effect share a canvas, otherwise every frame is
         # re-centred on its own content and the motion disappears
-        box = effimg.effect_box(txt, magic_bytes, key=rel)
-        im, _n = effimg.render(txt, t=ms * fr[i], provider=magic_bytes, box=box)
+        box = eff_box_of(rel, txt, cheap=thumb)
+        scale = 1.0
+        if thumb and box:
+            # thumbnails: composite on a canvas that is roughly mx px, instead
+            # of rendering the full-size effect and shrinking afterwards
+            big = max(box[2], box[3]) or 1
+            if big > mx * 1.6:
+                scale = max(0.05, (mx * 1.6) / big)
+        # a grid thumbnail of frame 0 (10% of the duration) is usually still
+        # invisible, so previews are taken at 40% instead
+        frac = 0.40 if (thumb and i == 0) else fr[i]
+        im, _n = effimg.render(txt, t=ms * frac, provider=magic_bytes, box=box,
+                               scale=scale)
         if im is None:
             raise LookupError('cannot render effect')
+        if thumb:
+            # 缩略图裁到可见内容：有些特效的并集包围盒极大（如 1221×1102），
+            # 直接缩小后主体只剩几个像素
+            bb = im.getbbox()
+            if bb:
+                im = im.crop(bb)
+            if im.width and im.height and max(im.size) < mx * 0.9:
+                # 内容太小就在缩略图里放大填满卡片（只在缩略图里这么做）
+                k = mx / float(max(im.size))
+                im = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))),
+                               Image.NEAREST)
         return im
     raise ValueError('unsupported ' + ext)
 
@@ -530,10 +711,10 @@ def fields():
                 pass
         try:
             widths = {}
-            for k, (pp, e) in pkg_index().items():
+            for k, (pi, j) in pkg_index().items():
                 if k.startswith('zipbin/') and k.endswith('.bin'):
                     try:
-                        d = pkg.pkg(pp).read_entry(e)
+                        d = pkg.pkg(_PKG_PATHS[pi]).read_at(j)
                         widths[os.path.basename(k)] = struct.unpack_from('<I', d, 8)[0]
                     except Exception:           # noqa: BLE001
                         pass
@@ -649,6 +830,20 @@ class H(BaseHTTPRequestHandler):
                     return self._json({'kind': 'table', 'bytes': len(d),
                                        'width': t['width'], 'count': t['count'], 'ext': ext})
                 return self._json(info_of(rel))
+            if u.path == '/api/mapimg':
+                rel = q.get('p', [''])[0]
+                w = max(64, min(4096, int(q.get('w', ['1400'])[0])))
+                col = q.get('col', ['1'])[0] not in ('0', '', 'false')
+                mon = q.get('mon', ['1'])[0] not in ('0', '', 'false')
+                npc = q.get('npc', ['1'])[0] not in ('0', '', 'false')
+                try:
+                    return self._send(200, map_img(rel, w, col, mon, npc), 'image/png')
+                except LookupError as exc:
+                    return self._send(404, str(exc).encode('utf-8'), 'text/plain')
+                except Exception as exc:    # noqa: BLE001
+                    return self._send(404, ('cannot render: %s: %s'
+                                           % (type(exc).__name__, exc)).encode('utf-8'),
+                                      'text/plain')
             if u.path == '/api/img':
                 rel = q.get('p', [''])[0]
                 i = int(q.get('i', ['0'])[0])
@@ -660,6 +855,26 @@ class H(BaseHTTPRequestHandler):
                 except Exception as exc:        # noqa: BLE001
                     return self._send(404, ('cannot decode: %s: %s' % (type(exc).__name__, exc)).encode('utf-8'), 'text/plain')
                 return self._send(200, body, 'image/png')
+            if u.path == '/api/maplist':
+                name = map_name(q.get('p', [''])[0])
+                mi = maps.info(name)
+                mi['title'] = maps.display_name(name)
+                return self._json({'name': name, 'info': mi,
+                                   'groups': maps.monster_groups(name),
+                                   'monsters': maps.monsters(name),
+                                   'npcs': maps.npcs(name)})
+            if u.path == '/api/mapmask':
+                name = map_name(q.get('p', [''])[0])
+                w = max(64, min(4000, int(q.get('w', ['900'])[0])))
+                try:
+                    im = maps.mask_image(name, w)
+                except Exception:                # noqa: BLE001
+                    im = None
+                if im is None:
+                    return self._send(404, b'no mask', 'text/plain')
+                buf = io.BytesIO()
+                im.save(buf, 'PNG', optimize=False, compress_level=6)
+                return self._send(200, buf.getvalue(), 'image/png')
             if u.path == '/api/table':
                 rel = q.get('p', [''])[0]
                 limit = int(q.get('limit', ['300'])[0])
@@ -852,17 +1067,83 @@ openDir('',null);
 </script></body></html>"""
 
 
+def warm_effect_thumbs(limit=240, workers=2):
+    """后台把特效缩略图先渲染好，用户翻页时就不用等（约 1.5k 张）。"""
+    try:
+        rels = ['effect/' + n for n, _s in sorted(_iter_files('effect'))
+                if n.lower().endswith('.eff')]
+    except Exception:            # noqa: BLE001
+        return
+    if limit:
+        rels = rels[:limit]
+    t0 = time.time()
+
+    def work(chunk, tag):
+        for k, rel in enumerate(chunk, 1):
+            try:
+                img_bytes(rel, 0, 120)
+            except Exception:    # noqa: BLE001
+                pass
+            if k % 200 == 0:
+                print('warm %s %d/%d  %.0fs'
+                      % (tag, k, len(chunk), time.time() - t0), flush=True)
+
+    n = max(1, min(workers, len(rels)))
+    chunks = [rels[i::n] for i in range(n)]
+    ths = [threading.Thread(target=work, args=(c, str(i)), daemon=True)
+           for i, c in enumerate(chunks)]
+    for th in ths:
+        th.start()
+    for th in ths:
+        th.join()
+    print('warm done %d in %.0fs' % (len(rels), time.time() - t0), flush=True)
+
+
+def kill_stale_listeners(port):
+    """Windows 允许同端口重复 bind：旧进程会继续接连接、页面不更新。开服前先清干净。"""
+    try:
+        import psutil
+    except Exception:           # noqa: BLE001
+        return 0
+    me, n = os.getpid(), 0
+    try:
+        conns = psutil.net_connections(kind='tcp')
+    except Exception:           # noqa: BLE001
+        return 0
+    for c in conns:
+        if not c.laddr or c.laddr.port != port or c.status != 'LISTEN' or not c.pid:
+            continue
+        if c.pid == me:
+            continue
+        try:
+            psutil.Process(c.pid).kill()
+            n += 1
+        except Exception:       # noqa: BLE001
+            pass
+    return n
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8794)
     ap.add_argument('--data', default=None, help='资源根目录（默认 F:\\WG自由幻想\\自由幻想\\data')
+    ap.add_argument('--warm', type=int, default=0,
+                    help='启动时预热多少张特效缩略图（0 = 不预热）')
+    ap.add_argument('--no-warm', action='store_true', help='不预热特效缩略图')
     a = ap.parse_args()
     global DATA
     if a.data:
         DATA = a.data
+    n = kill_stale_listeners(a.port)
+    if n:
+        print('closed %d stale listener(s) on :%d' % (n, a.port), flush=True)
     srv = ThreadingHTTPServer(('127.0.0.1', a.port), H)
     srv.daemon_threads = True
     print(f'http://127.0.0.1:{a.port}/  root={DATA}', flush=True)
+    warm = 0 if a.no_warm else a.warm
+    if warm > 0:
+        threading.Thread(target=warm_effect_thumbs, args=(warm,),
+                         daemon=True).start()
     srv.serve_forever()
 
 

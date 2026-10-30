@@ -390,15 +390,51 @@ def pixel4(d, o, order=BPP4_ORDER):
     return (d[o + r], d[o + g], d[o + b], d[o + a])
 
 
+_R_LO = bytes((v & 15) * 17 for v in range(256))
+_NIB_HI = bytes((v >> 4) * 17 for v in range(256))
+
+
+# 4-bit nibble -> 8-bit value (v * 17), used by the fast pixel paths
+_NIB = bytes((v * 17) for v in range(16))
+
+
 def to_image(d, px_start, w, h, bpp=2, alpha_high=True):
+    """Decode one frame to an RGBA PIL image.
+
+    2-byte pixels are `byte0 = G<<4|B`, `byte1 = A<<4|R` (A4R4G4B4); the fast
+    path expands the nibbles through a 256-entry translation table instead of
+    running a Python loop over every pixel.
+    """
     from PIL import Image
-    img = Image.new('RGBA', (w, h))
+    n = w * h
     if bpp == 4:
-        img.putdata([pixel4(d, px_start + 4 * i) for i in range(w * h)])
+        raw = d[px_start:px_start + 4 * n]
+        r, g, b, a = BPP4_ORDER
+        out = bytearray(4 * n)
+        out[0::4] = raw[r::4]
+        out[1::4] = raw[g::4]
+        out[2::4] = raw[b::4]
+        out[3::4] = raw[a::4]
+        return Image.frombytes('RGBA', (w, h), bytes(out))
+    raw = d[px_start:px_start + 2 * n]
+    b0 = raw[0::2]
+    b1 = raw[1::2]
+    out = bytearray(4 * n)
+    if alpha_high:
+        out[0::4] = b1.translate(_R_LO)          # R = low nibble of byte1
+        out[1::4] = b0.translate(_NIB_HI)        # G = high nibble of byte0
+        out[2::4] = b0.translate(_R_LO)          # B = low nibble of byte0
+        out[3::4] = b1.translate(_NIB_HI)        # A = high nibble of byte1
     else:
-        img.putdata([pixel(d, px_start + 2 * i, alpha_high)
-                     for i in range(w * h)])
-    return img
+        out[0::4] = b1.translate(_NIB_HI)
+        out[1::4] = b0.translate(_NIB_HI)
+        out[2::4] = b0.translate(_R_LO)
+        out[3::4] = b1.translate(_R_LO)
+    return Image.frombytes('RGBA', (w, h), bytes(out))
+
+
+_R_LO = bytes((v & 15) * 17 for v in range(256))
+_NIB_HI = bytes((v >> 4) * 17 for v in range(256))
 
 
 def stats(d, px_start, w, h, bpp=2):

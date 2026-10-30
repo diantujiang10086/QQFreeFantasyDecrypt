@@ -1,34 +1,44 @@
-"""objects*.pkg 读取器（按需解码，不落盘）。
+"""读取游戏的 `.pkg` 容器（索引紧凑版，内存占用小）。
 
-格式与算法来自私服工程 `official_pkg60.py` 对 foplayer.exe 的逆向结果：
-    16 字节头：u32 version / u32 count / u32 index_offset / u32 index_length
-    尾部索引（不压缩），每项：
-        u16 name_len / GBK 路径 / u32 flags / u32 offset / u32 raw_size / u32 compressed_size
-    flags: bit0 = 压缩；bit7(0x80) = 先做 XOR
-    version: 100 zlib / 101 lzma(跳过 5 字节) / 102 xor+zlib / 103 xor+zstd / 104 xor+lz4
+一个 `.pkg` 由三部分组成：
+
+    16 字节头  u32 version / u32 count / u32 index_offset / u32 index_length
+    数据区     每条：flags bit0=压缩、bit7=先 XOR；version 100 zlib / 101 lzma
+               / 102 xor+zlib / 103 xor+zstd / 104 xor+lz4
+    索引区     u16 name_len + GBK 路径 + u32 flags + u32 offset + u32 raw + u32 comp
+
+索引只保留「名字列表 + 定长元数据数组（array('I')） + 每条元数据在索引里的偏移」，
+不再为 9 万多条目各建一个 dict —— 打开 17 个包从 ~150MB 降到 ~20MB。
+
+    python pkg.py                 # 列出所有包与条目数
+    python pkg.py avatar/head/head0101.gsn    # dump 一个条目
 """
-from __future__ import annotations
-
 import os
 import struct
 import zlib
+from array import array
 
-MASK32 = 0xFFFFFFFF
+HERE = os.path.dirname(os.path.abspath(__file__))
 PKG_ROOT = r'F:\WG自由幻想\自由幻想\data'
+MASK32 = 0xFFFFFFFF
 
 
-def _u32(x):
+def _u32(x: int) -> int:
     return x & MASK32
 
 
-def _imul(a, b):
+def _imul(a: int, b: int) -> int:
     return (a * b) & MASK32
 
 
-def pkg_seeds(flags_hi12, nibble, raw, comp):
+def pkg_seeds(flags_hi12: int, nibble: int, raw: int, comp: int) -> tuple[int, int]:
+    """foplayer 0x54994C → (seed1, seed2)."""
     rot_n = (nibble + 1) & 0x1F
     const = 0x7E197612
-    rot = const if rot_n == 0 else _u32((const >> (32 - rot_n)) | (const << rot_n))
+    if rot_n == 0:
+        rot = const
+    else:
+        rot = _u32((const >> (32 - rot_n)) | (const << rot_n))
     edx = _imul(nibble, 0x415D42A)
     saved = rot ^ 0xE3C0CFE1
     edi = _u32(0xFDF515EB - edx)
@@ -64,7 +74,8 @@ def pkg_seeds(flags_hi12, nibble, raw, comp):
     return seed1, seed2
 
 
-def pkg_xor_inplace(buf, flags, raw, comp):
+def pkg_xor_inplace(buf: bytearray, flags: int, raw: int, comp: int) -> int:
+    """foplayer 0x549A4E. Only the first xor_len bytes are touched."""
     flags_hi12 = flags >> 12
     xor_len = (flags_hi12 & 0x7F) + 0x80
     nibble = (flags >> 8) & 0xF
@@ -90,7 +101,8 @@ def pkg_xor_inplace(buf, flags, raw, comp):
     return xor_len
 
 
-def decompress(stored, version, flags, raw):
+def pkg_decompress(stored: bytes, version: int, flags: int, raw: int) -> bytes:
+    """foplayer 0x54A06F version switch."""
     buf = bytearray(stored)
     comp = len(stored)
     if version in (102, 103, 104) and (flags & 0x80):
@@ -107,57 +119,93 @@ def decompress(stored, version, flags, raw):
         import lz4.block
         out = lz4.block.decompress(bytes(buf), uncompressed_size=raw)
         if len(out) != raw:
-            raise ValueError('lz4 size %d != raw %d' % (len(out), raw))
+            raise ValueError(f'lz4 size {len(out)} != raw {raw}')
         return out
-    raise ValueError('unsupported pkg version %d' % version)
-
+    raise ValueError(f'unsupported official pkg version {version}')
 
 class Pkg:
+    """一个 .pkg 包。"""
+
     def __init__(self, path):
         self.path = path
         with open(path, 'rb') as fh:
             head = fh.read(16)
             self.version, self.count, idx_off, idx_len = struct.unpack('<4I', head)
             fh.seek(idx_off)
-            idx = fh.read(idx_len)
-        self.entries = []
-        pos, end = 0, len(idx)
-        while pos + 2 <= end and len(self.entries) < self.count:
-            (nlen,) = struct.unpack_from('<H', idx, pos)
+            self.idx = fh.read(idx_len)
+        self.names = []            # 原始名字（保留大小写与反斜杠）
+        self.meta = array('I')     # 每条 4 个 u32：flags, off, raw, comp
+        self.pos = array('I')      # 条目 meta 在 self.idx 中的偏移
+        pos, end = 0, len(self.idx)
+        while pos + 2 <= end and len(self.names) < self.count:
+            (nlen,) = struct.unpack_from('<H', self.idx, pos)
             pos += 2
-            name = idx[pos:pos + nlen].decode('gbk', 'replace')
-            pos += nlen
-            if pos + 16 > end:
+            if pos + nlen + 16 > end:
                 break
-            flags, off, raw, comp = struct.unpack_from('<4I', idx, pos)
+            self.names.append(self.idx[pos:pos + nlen].decode('gbk', 'replace'))
+            pos += nlen
+            self.pos.append(pos)
+            self.meta.extend(struct.unpack_from('<4I', self.idx, pos))
             pos += 16
-            self.entries.append({'name': name, 'key': name.replace('\\', '/').lower(),
-                                 'flags': flags, 'off': off, 'raw': raw, 'comp': comp})
-        self.by_key = {e['key']: e for e in self.entries}
+        self.count = len(self.names)
+        self._by_key = None
 
-    def read_entry(self, entry):
+    # ---------------------------------------------------------------- 查询
+    def name_at(self, j):
+        return self.names[j]
+
+    def key_at(self, j):
+        return self.names[j].replace('\\', '/').lower()
+
+    def raw_at(self, j):
+        return self.meta[4 * j + 2]
+
+    def entry_at(self, j):
+        f, off, raw, comp = self.meta[4 * j:4 * j + 4]
+        return {'name': self.names[j], 'key': self.key_at(j), 'flags': f,
+                'off': off, 'raw': raw, 'comp': comp}
+
+    @property
+    def by_key(self):
+        """key -> 序号（懒建，只在按名字查找时才需要）。"""
+        if self._by_key is None:
+            self._by_key = {self.key_at(j): j for j in range(self.count)}
+        return self._by_key
+
+    def find_index(self, name):
+        key = name.replace('\\', '/').lower().lstrip('/')
+        j = self.by_key.get(key)
+        if j is not None:
+            return j
+        for k, v in self.by_key.items():
+            if k.endswith('/' + key):
+                return v
+        return None
+
+    def read_at(self, j):
+        f, off, raw, comp = self.meta[4 * j:4 * j + 4]
         with open(self.path, 'rb') as fh:
-            fh.seek(entry['off'])
-            blob = fh.read(entry['comp'])
-        out = decompress(blob, self.version, entry['flags'], entry['raw'])
-        if entry['raw'] and len(out) != entry['raw']:
-            raise ValueError('%s: %d != raw %d' % (entry['name'], len(out), entry['raw']))
+            fh.seek(off)
+            blob = fh.read(comp)
+        out = pkg_decompress(blob, self.version, f, raw)
+        if raw and len(out) != raw:
+            raise ValueError('%s: %d != raw %d' % (self.names[j], len(out), raw))
         return out
 
-    def read(self, name):
-        key = name.replace('\\', '/').lower().lstrip('/')
-        e = self.by_key.get(key)
-        if e is None:
-            for k, v in self.by_key.items():
-                if k.endswith('/' + key):
-                    e = v
-                    break
-        if e is None:
-            raise KeyError(name)
-        return self.read_entry(e)
+    # 兼容旧接口
+    def read_entry(self, entry):
+        if isinstance(entry, int):
+            return self.read_at(entry)
+        return self.read_at(self.find_index(entry['key']))
 
-    def names(self):
-        return [e['key'] for e in self.entries]
+    def read(self, name):
+        j = self.find_index(name)
+        if j is None:
+            raise KeyError(name)
+        return self.read_at(j)
+
+    def names_list(self):
+        return [self.key_at(j) for j in range(self.count)]
 
 
 _cache = {}
@@ -185,41 +233,35 @@ def pkg(path):
 
 
 def find(name, root=PKG_ROOT):
-    """返回 (pkg_path, entry) 或 (None, None)。"""
-    key = name.replace('\\', '/').lower().lstrip('/')
+    """返回 (pkg_path, 条目序号) 或 (None, None)。"""
     for p in all_pkgs(root):
         try:
             k = pkg(p)
-        except Exception:
+        except Exception:        # noqa: BLE001
             continue
-        e = k.by_key.get(key)
-        if e is None:
-            for kk, v in k.by_key.items():
-                if kk.endswith('/' + key):
-                    e = v
-                    break
-        if e is not None:
-            return p, e
+        j = k.find_index(name)
+        if j is not None:
+            return p, j
     return None, None
 
 
 def read(name, root=PKG_ROOT):
-    p, e = find(name, root)
+    p, j = find(name, root)
     if p is None:
         raise KeyError(name)
-    return pkg(p).read_entry(e)
+    return pkg(p).read_at(j)
 
 
 def catalog(root=PKG_ROOT):
-    """[(pkg_path, pkg_version, [entry...])]"""
+    """[(pkg_path, pkg_version, Pkg, err)]"""
     out = []
     for p in all_pkgs(root):
         try:
             k = pkg(p)
-        except Exception as e:
-            out.append((p, -1, [], str(e)))
+        except Exception as e:   # noqa: BLE001
+            out.append((p, -1, None, str(e)))
             continue
-        out.append((p, k.version, k.entries, ''))
+        out.append((p, k.version, k, ''))
     return out
 
 
@@ -230,7 +272,8 @@ if __name__ == '__main__':
         print('%s: %d bytes, head %s' % (sys.argv[1], len(data), data[:16].hex(' ')))
     else:
         tot = 0
-        for p, ver, ent, err in catalog():
-            print('%-16s v%-3d entries %5d %s' % (os.path.basename(p), ver, len(ent), err))
-            tot += len(ent)
+        for p, ver, k, err in catalog():
+            n = len(k.names) if k else 0
+            print('%-16s v%-3d entries %5d %s' % (os.path.basename(p), ver, n, err))
+            tot += n
         print('total entries', tot)

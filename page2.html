@@ -53,6 +53,8 @@ th{background:#242933;color:#cfd6e3;position:sticky;top:0}
  background-image:linear-gradient(45deg,#3a4049 25%,transparent 25%,transparent 75%,#3a4049 75%),
                   linear-gradient(45deg,#3a4049 25%,transparent 25%,transparent 75%,#3a4049 75%);
  background-size:16px 16px;background-position:0 0,8px 8px}
+#lbside{display:flex;align-items:flex-start;margin-right:14px}
+#lbside[hidden]{display:none}
 #lbhint{position:fixed;bottom:8px;left:0;right:0;text-align:center;color:#9fb4d0;font-size:12px;pointer-events:none}
 </style></head><body>
 <header><b>资源</b><div id="cats"></div>
@@ -72,9 +74,9 @@ th{background:#242933;color:#cfd6e3;position:sticky;top:0}
   <div id="dhead"><span id="dtitle"></span><span id="dmeta"></span><button id="dclose">✕ 关闭</button></div>
   <div id="dframes"></div>
 </div>
-<div id="lb" hidden><img id="lbimg" alt=""><div id="lbhint">点击任意处关闭</div></div>
+<div id="lb" hidden><div id="lbside" hidden></div><img id="lbimg" alt=""><div id="lbhint">点击任意处关闭</div></div>
 <script>
-const IMGEXT=new Set(['gsn','gso','gsa','til','dat','tga','bmp','png','jpg','jpeg','eff']);
+const IMGEXT=new Set(['gsn','gso','gsa','til','dat','tga','bmp','png','jpg','jpeg','eff','map']);
 const S={cat:'',page:0,size:100,total:0,pages:1,files:[],kind:'img'};
 const $=s=>document.querySelector(s);
 const enc=encodeURIComponent;
@@ -133,7 +135,7 @@ function render(){
     g.appendChild(d);
   }
   S.files.forEach(f=>{
-    const p=S.cat+'/'+f.n;
+    const p=f.p?(f.p):(S.cat?S.cat+'/'+f.n:f.n);
     const c=document.createElement('div');c.className='card';
     const st=document.createElement('div');st.className='stage';
     if(IMGEXT.has(ext(f.n))){
@@ -147,7 +149,8 @@ function render(){
       st.style.fontSize='30px';st.style.color='#7f8b9e';
     }
     c.appendChild(st);
-    const l=document.createElement('div');l.className='lbl';l.textContent=f.n;l.title=f.n+'  '+(f.s|0)+' B';
+    const lbl=f.t||f.n;
+  const l=document.createElement('div');l.className='lbl';l.textContent=lbl;l.title=f.n+'  '+(f.s|0)+' B';
     c.append(l);
     c.onclick=()=>detail(p,f.n);
     g.appendChild(c);
@@ -197,7 +200,9 @@ async function detail(p,name){
   $('#dmeta').textContent='加载中…';
   const box=$('#dframes');box.innerHTML='';box.className='';
   try{
-    if(ext(name)==='eff'){
+    if(ext(name)==='map'){
+      await mapDetail(p,name,box);
+    }else if(ext(name)==='eff'){
       await effDetail(p,name,box);
     }else if(IMGEXT.has(ext(name))){
       const info=await j('/api/info?p='+enc(p));
@@ -220,6 +225,85 @@ async function detail(p,name){
       const pre=document.createElement('pre');pre.textContent=t.text;box.appendChild(pre);
     }
   }catch(e){$('#dmeta').textContent='读取失败 '+e}
+}
+
+/* .map：示意图 + 碰撞格 / 怪物 / NPC 叠层 */
+async function mapDetail(p,name,box){
+  const info=await j('/api/info?p='+enc(p));
+  const w=info.world||[0,0], sk=info.sketch||[0,0];
+  var fitTxt='';
+  if(info.fit){var pc=Math.round((info.fit.inside||0)*100);
+    fitTxt='  ·  底图契合 '+pc+'%'+(pc<60?'（建议看「俯视碰撞」）':'');}
+  $('#dmeta').textContent=(info.title||info.name||name)+fitTxt+'  ·  世界 '+w[0]+'×'+w[1]
+    +'  ·  示意图 '+sk[0]+'×'+sk[1]+'  ·  碰撞格 '+info.cells
+    +'  ·  怪物 '+info.monsters+'  ·  NPC '+info.npcs;
+  box.className='';
+  const bar=document.createElement('div');
+  bar.style.cssText='display:flex;gap:14px;align-items:center;margin-bottom:8px;flex-wrap:wrap';
+  const mk=(tag,txt,on)=>{const l=document.createElement('label');
+    l.style.cssText='display:inline-flex;gap:4px;align-items:center;color:#cfd6e3;cursor:pointer';
+    const c=document.createElement(tag);c.checked=on;l.appendChild(c);
+    l.appendChild(document.createTextNode(txt));return [l,c];};
+  const [l1,cCol]=mk('input','碰撞(红)',true);
+  const [l2,cMon]=mk('input','怪物',true);
+  const [l3,cNpc]=mk('input','NPC',true);
+  const [l4,cMask]=mk('input','俯视碰撞',false);
+  const btn=document.createElement('button');
+  btn.textContent='刷新';
+  btn.style.cssText='background:#242933;color:#cfd6e3;border:1px solid #313846;border-radius:5px;padding:3px 10px;cursor:pointer';
+  bar.append(l1,l2,l3,l4,btn);
+  box.appendChild(bar);
+  const wrap=document.createElement('div');
+  wrap.style.cssText='overflow:auto;max-height:78vh;border:1px solid #2a303c;background:#282c34';
+  const img=document.createElement('img');
+  img.style.cssText='display:block;image-rendering:pixelated';
+  img.onclick=()=>{
+    const side=document.createElement('div');
+    side.style.cssText='min-width:170px;max-width:230px;max-height:90vh;overflow:auto;'
+      +'background:#20242c;border:1px solid #313846;border-radius:8px;padding:10px;'
+      +'color:#cfd6e3;font-size:12px;cursor:default';
+    const h=document.createElement('div');
+    h.textContent='怪物列表（'+groups.length+' 种）';
+    h.style.cssText='font-weight:600;margin-bottom:8px;color:#e6ebf3';
+    side.appendChild(h);
+    const list=document.createElement('div');
+    list.style.cssText='display:flex;flex-direction:column;gap:6px';
+    fillLegend(list);
+    side.appendChild(list);
+    side.onclick=e=>e.stopPropagation();
+    lightbox(img.src,side);
+  };
+  wrap.appendChild(img);
+  box.appendChild(wrap);
+  let groups=[];
+  try{ const ml=await j('/api/maplist?p='+enc(p)); groups=ml.groups||[]; }catch(e){}
+  const legend=document.createElement('div');
+  legend.style.cssText='display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 10px;'
+    +'color:#cfd6e3;font-size:12px;max-height:96px;overflow:auto';
+  const fillLegend=(host)=>{
+    host.innerHTML='';
+    if(!groups.length){const t=document.createElement('span');
+      t.textContent='（这张地图没有刷怪点）';t.style.color='#8b95a5';host.appendChild(t);return;}
+    groups.forEach(g=>{
+      const it=document.createElement('span');
+      it.style.cssText='display:inline-flex;align-items:center;gap:5px';
+      const dot=document.createElement('i');
+      dot.style.cssText='width:9px;height:9px;border-radius:50%;display:inline-block;'
+        +'border:1px solid #0008;background:rgb('+g.color.join(',')+')';
+      it.appendChild(dot);
+      it.appendChild(document.createTextNode(g.name+' ×'+g.count));
+      host.appendChild(it);
+    });
+  };
+  fillLegend(legend);
+  box.appendChild(legend);
+  const src=()=>cMask.checked?('/api/mapmask?p='+enc(p)+'&w=1400')
+    :'/api/mapimg?p='+enc(p)+'&w=1400&col='+(cCol.checked?1:0)
+    +'&mon='+(cMon.checked?1:0)+'&npc='+(cNpc.checked?1:0);
+  const draw=()=>{img.src=src()};
+  btn.onclick=draw;
+  cCol.onchange=cMon.onchange=cNpc.onchange=cMask.onchange=draw;
+  draw();
 }
 
 /* .eff：合成帧 + 「显示文本」开关 */
@@ -269,14 +353,18 @@ async function effDetail(p,name,box){
   };
 }
 
-function lightbox(src){
+function lightbox(src,side){
   const lb=$('#lb');
   $('#lbimg').src=src;
+  const box=$('#lbside');
+  box.innerHTML='';
+  if(side){box.hidden=false;box.appendChild(side);}else{box.hidden=true;}
   lb.hidden=false;
 }
 function closeLb(){
   $('#lb').hidden=true;
   $('#lbimg').removeAttribute('src');
+  const box=$('#lbside');box.hidden=true;box.innerHTML='';
 }
 $('#lb').onclick=closeLb;
 

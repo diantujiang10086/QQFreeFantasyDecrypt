@@ -10,11 +10,18 @@ import math
 
 from PIL import Image, ImageChops
 
+try:                      # numpy makes the "is this layer a glow sprite?" test
+    import numpy as _np   # a C-speed array op instead of a per-pixel Python loop
+except Exception:         # noqa: BLE001
+    _np = None
+
 import dimg
 import eff
 from effrender import lerp_keyframes
 
-_SPR = {}
+_SPR = {}                 # 有上限的精灵图 LRU（见 _spr_put）
+_SPR_MAX = 64
+_ADD = {}
 
 
 def _stem(name):
@@ -86,6 +93,9 @@ def sprite_geo(stem, provider, frame=0):
                     ny = min(1.0, max(0.0, ny))
                     out = (im, float(nx), float(ny), _black_frac(im) >= 0.35)
     _SPR[key] = out
+    if len(_SPR) > _SPR_MAX:            # FIFO 淘汰，别让精灵图把内存吃满
+        for k in list(_SPR)[:len(_SPR) - _SPR_MAX]:
+            _SPR.pop(k, None)
     return out
 
 
@@ -102,6 +112,16 @@ _ADD = {}
 
 def _black_frac(im):
     """Fraction of opaque pixels that are (near) black."""
+    if _np is not None:
+        arr = _np.asarray(im)
+        al = arr[:, :, 3]
+        opaque = al >= 250
+        n = int(opaque.sum())
+        if n < 16:
+            return 0.0
+        rgb = arr[:, :, :3]
+        dark = (rgb.max(axis=2) < 12) & opaque
+        return float(int(dark.sum())) / n
     a = im.getchannel('A')
     rgb = im.convert('RGB')
     hist_a = a.histogram()
@@ -141,7 +161,7 @@ def readSprite(name, provider, imgs):
     imgs[name] = g
     return g
 
-def _items(layers, t, provider, max_layers=24, pivots=None):
+def _items(layers, t, provider, max_layers=24, pivots=None, scale=1.0):
     """Placed layer images: (image, x, y, anchor_x, anchor_y, additive).
 
     `pivots[i]` is the layer anchor in *normalised* coordinates: (0,0) is the
@@ -155,6 +175,9 @@ def _items(layers, t, provider, max_layers=24, pivots=None):
         if g is None:
             continue
         im0, _cx, _cy, additive = g
+        if scale != 1.0 and scale > 0:
+            im0 = im0.resize((max(1, int(im0.width * scale)),
+                              max(1, int(im0.height * scale))), Image.NEAREST)
         # layer anchor, normalised: (0,0) = top-left of the image, (1,1) = bottom-right
         px_n, py_n = 0.5, 0.5
         if pivots and idx < len(pivots):
@@ -204,7 +227,8 @@ def _items(layers, t, provider, max_layers=24, pivots=None):
         im2 = rgb.convert('RGBA')
         im2.putalpha(a)
         # pos = (x, y, z)：z 轴向上为正，屏幕 y 向下增长，所以取负号
-        item = (im2, float(pos[0]) + ox, oy - float(pos[2]), ax, ay, additive)
+        item = (im2, (float(pos[0]) + ox) * scale, (oy - float(pos[2])) * scale,
+                ax, ay, additive)
         items.append(item)
     return items
 
@@ -286,7 +310,8 @@ def _pivots(text, provider=None, max_layers=24):
     return out
 
 
-def render(text, t=None, pct=0.4, provider=None, max_layers=24, box=None, pivots=None):
+def render(text, t=None, pct=0.4, provider=None, max_layers=24, box=None, pivots=None,
+           scale=1.0):
     if provider is None:
         return None, 0
     layers = _layers(text)
@@ -296,7 +321,7 @@ def render(text, t=None, pct=0.4, provider=None, max_layers=24, box=None, pivots
         return None, 0
     if t is None:
         t = duration(text) * pct
-    items = _items(layers, t, provider, max_layers, pivots)
+    items = _items(layers, t, provider, max_layers, pivots, scale)
     if not items:
         return None, 0
     if box is None:
@@ -304,6 +329,11 @@ def render(text, t=None, pct=0.4, provider=None, max_layers=24, box=None, pivots
     if box is None:
         return None, 0
     x0, y0, W, H = box
+    if scale != 1.0 and scale > 0:
+        # 缩略图：图层已经在 `_items` 里按比例缩小，画布坐标跟着缩
+        x0, y0 = x0 * scale, y0 * scale
+        W = max(1, int(round(W * scale)))
+        H = max(1, int(round(H * scale)))
     if W > 4000 or H > 4000 or W < 1 or H < 1:
         return None, 0
     out = Image.new('RGBA', (W, H), (0, 0, 0, 0))

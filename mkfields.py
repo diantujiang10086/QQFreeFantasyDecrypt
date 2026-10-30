@@ -13,15 +13,15 @@ OUT = os.path.join(HERE, 'out', 'fields_cache.json')
 
 def widths_from_pkg():
     w = {}
-    for path, ver, ents, err in pkg.catalog():
-        for e in ents:
-            k = e['key']
-            if k.startswith('zipbin/') and k.endswith('.bin'):
+    for path, ver, k, err in pkg.catalog():
+        for j in range(k.count):
+            key = k.key_at(j)
+            if key.startswith('zipbin/') and key.endswith('.bin'):
                 try:
-                    d = pkg.pkg(path).read_entry(e)
-                    w[os.path.basename(k)] = struct.unpack_from('<I', d, 8)[0]
+                    d = pkg.pkg(path).read_at(j)
+                    w[os.path.basename(key)] = struct.unpack_from('<I', d, 8)[0]
                 except Exception as ex:            # noqa: BLE001
-                    print('skip', k, ex, file=sys.stderr)
+                    print('skip', key, ex, file=sys.stderr)
     return w
 
 
