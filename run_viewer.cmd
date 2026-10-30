@@ -12,7 +12,7 @@ echo   Resource viewer  -^>  http://127.0.0.1:8794/
 echo   Close this window or press Ctrl+C to stop.
 echo ============================================
 echo.
-"%PY%" viewer2.py --port 8794 --data "F:\WG自由幻想\自由幻想\data"
+"%PY%" viewer2.py --port 8794
 echo.
 echo Server stopped.
 pause
