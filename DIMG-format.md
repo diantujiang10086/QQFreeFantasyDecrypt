@@ -520,14 +520,82 @@ python effrender.py --out out\eff --step 1 --pct 0.4 --sheet out\eff_sheet.png
 python mkeff.py                            # 生成 out\eff\index.html
 ```
 
+### `official\res\`：`.gsa` 是**第三种**容器（`QQF\x1aIANI`，不是 DIMG）
+
+`res\` 里除了 197 个 `.lua` 配置和几个 `.tga/.bmp/.cfg`，其余 **5,398 个 `.gsa`（785.5 MB）都是同一种容器**，
+魔数是 `51 51 46 1a 49 41 4e 49`（`QQF\x1aIANI`）—— 与 `DIMG`（`QQF\x1aDIMG`）**只差后 4 个字符**，
+但布局完全不同：它没有方向表、没有记录前缀，而是「**52 字节头 + 若干图块**」。
+
+| 偏移 | 类型 | 含义 | 实测 |
+|---|---|---|---|
+| 0 | 8 B | 魔数 | `QQF\x1aIANI` |
+| 8 | u32 | 版本 | `65536`（=1.0）5,116 个 / `0` 282 个，语义未定，解析不用它 |
+| 12 | u32 | 头部字节数 | 恒 36（从 @12 到 @48） |
+| 16, 20 | u32×2 | `aw, ah` | 画布/单块尺寸（也是「可视区域」） |
+| 24, 28 | u32×2 | `bw, bh` | 整张图的尺寸（可大于画布 → 需要拼接） |
+| 32 | u32 | **帧数** | 1…121（1,822 个文件 >1 帧） |
+| 36, 40 | u32×2 | `cw, ch` | 实际存储的块尺寸（通常 = `aw, ah`，4 个鼠标指针例外） |
+| 44 | u32 | 行字节数 | `= cw × 每像素字节数`（2 或 4） |
+| 48 | u32 | 像素格式标志 | `0`:50 / `1`:5,027 / `2`:321（`>=2` → 4 字节/像素，否则 2 字节） |
+
+**图块（tile）**：从 52 开始，每块 `cw × ch × 2 或 4` 字节；**第 2 块起每块前面多 16 字节**
+（`(cw, ch, stride, 格式标志)` 四个 u32，与头部同值，起校验作用）。块数不用算 —— 直接由文件长度决定：
+
+```
+len(file) == 52 + n × tile + (n − 1) × 16      ⇒  n = (len − 52 + 16) / (tile + 16)
+```
+
+这条恒等式 **5,398 / 5,398 个文件全部成立**（`gsaverify.py`），也因此严格校验了头部所有字段。
+`n = 帧数 × ceil(bw / cw) × ceil(bh / ch)`：一帧之内按行优先把块拼成 `bw × bh` 的整图，
+块数多于帧数时就是「大图被切成小块存」——`uires\titleui\picback4.gsa` 是 1600×900 的登录背景，
+切成 **1,450 块**；`sketchmap\qw0021.gsa` 是 720×360 的地图，切成 276 块（3×3、23×12 都验证过）。
+
+**两种像素格式**（与 DIMG 完全相同的编码，只是没有 DIMG 的 4 字签名）：
+
+* **2 字节/像素**（5,077 个文件）：`byte0 = G<<4 | B`、`byte1 = A<<4 | R`，通道值 `nibble × 17`。
+* **4 字节/像素**（321 个文件）：内存序 `B, G, R, A`（`D3DFMT_A8R8G8B8`），与 DIMG 的 `flag=2` 一致。
+
+**逐目录统计**（`gsastat.py`，按顶层子目录聚合）：
+
+| 子目录 | 文件 | MB | 帧数 | 块数 | 说明 |
+|---|---|---|---|---|---|
+| `uires` | 2,975 | 387.1 | 7,224 | 82,022 | 界面：按钮/面板/图标/背景，含 800+ 个 1600×900 大图 |
+| `sketchmap` | 498 | 312.6 | 498 | 105,165 | 世界大地图（720×360 / 720×540 切块） |
+| `dlgpic` | 195 | 34.7 | 195 | 6,511 | NPC 对话立绘 |
+| `effect` | 94 | 11.4 | 339 | 4,774 | 界面特效（发光/箭头/暴击字） |
+| `weather` | 58 | 9.4 | 240 | 778 | 天气动画（雨/雪/夜） |
+| `pet` / `peticon` | 359 / 360 | 7.5 / 0.6 | 359 / 360 | 1,902 / 360 | 宠物立绘 / 图标 |
+| `god` / `godicon` | 36 / 33 | 5.9 / 0.2 | 36 / 33 | 584 / 35 | 神位图 |
+| `npcicon` | 119 | 4.6 | 361 | 600 | 小地图 NPC 标记（`_left/_middle/_right` 三段拼条） |
+| `map` / `minimap` | 111 / 10 | 4.4 / 0.3 | 111 / 10 | 555 / 10 | 地图/小地图 |
+| `head` | 296 | 4.2 | 296 | 1,608 | **角色头像**（不是 `avatar\head` 的 3D 头） |
+| `biaoqing` | 156 | 1.1 | 736 | 736 | 聊天表情（平均 4.7 帧） |
+| `endurance` / `texticon` / `exp` / `buddy` / `taskhint` | 19 / 54 / 2 / 17 / 6 | 1.8 | 191 | 482 | 耐久条/数字字模/经验条/好友图标/任务提示 |
+
+合计 **5,398 文件 / 785.5 MB / 10,989 帧 / 206,122 块**，解析失败 **0**。
+
+**这些 `.gsa` 是干什么用的？** 同目录下 197 个 `.lua` 是界面布局脚本（`uires\achieve.lua` 等，GBK 编码），
+里面用 `bkimage="res/uires/achieve/achievedlg.gsa"`、`patchupleft="res/uires/newcommon/vblocktop.gsa"`
+这种字段把 `.gsa` 挂到控件上（`patch*` 是九宫格拉伸的分块图）—— 所以 `.gsa` 是**界面/贴图资源**，
+`bw × bh` 是控件要显示的整图尺寸，`cw × ch` 是它被切成的存储块，`frames` 是帧动画（按钮三态、动画 logo）。
+这也解释了为什么 `head\DThed085_01.gsa` 里 50×50 的图只有 5,000 字节：界面资源不做 3D 精灵那套 pivot/方向表。
+
+```
+python gsa.py census --csv out\gsa.csv                    # 5,398/5,398 ok
+python gsa.py png   out\gsa                               # 10,989 张 PNG
+python gsa.py sheet out\gsa_sheet.png --step 3 --per-page 96 --cols 12
+python gsa.py show  "peticon\M5341.gsa" 0                 # 单文件调试
+python gsastat.py                                         # 按子目录聚合
+```
+
 ---
 
 ## 9. 尚未解决的部分
 
 * **4 字节像素的 RGB 通道序**：`A` 在 `byte3` 已确证，`B,G,R` 的次序按
-  「16 位是 `A4R4G4B4` → 32 位是 `A8R8G8B8`」推定为内存序 `B,G,R,A`，
-  但本机没有任何视觉模型可用（`read_image` / `modlens` 都不可用），
-  只能由用户目视 `out/px4cmp.png` 定案。
+  「16 位是 `A4R4G4B4` → 32 位是 `A8R8G8B8`」推定为内存序 `B,G,R,A`；
+  **2024 年用 `res\*.gsa` 的 4 字节文件（321 个）实测确认**：按 `B,G,R,A` 解出的
+  游戏界面（`AncientCardDlg.gsa` 的「我的典籍」窗口、绿色藤蔓、金色标题）颜色正确 → 推定成立。
 * **`npc42102.gsn` 的方向表为什么全零**：其它同版本文件都正常填充，
   猜测是导出工具在「2 个方向 / 10 帧」这种小动画上漏写了，但无证据。
 * preamble 里 `(W,H,w,h,W,1,h)` 各字段语义、`oh=96` 的 extra 坐标块、
@@ -562,6 +630,9 @@ python mkeff.py                            # 生成 out\eff\index.html
 | `official\object` 抽样导出（`--step 20`） | **958 个文件 → 1,193 张 PNG / 108.2 MB**（各帧独立命名，最大 `NT_TJFB_0125` 1024×768）；总览图 `object_sheet-1..10.png`（每页 96 格） |
 | `official\effect` 解析（`eff.py census`） | **1,596/1,596 全部通过**（1,594 `.eff` + 2 `.eff_`）；4,017 层、10,041 个关键帧、1,790 个精灵引用 |
 | `official\effect` 静态预览（`effrender.py`） | **1,524 张 / 21.4 MB**（t = 40% 时间轴），总览 `eff_sheet-1..20.png`；浏览器页 `/eff/index.html` |
+| `official\res\*.gsa` 解析（`gsa.py census`） | **5,398/5,398 全部通过**，0 失败；10,989 帧、206,122 块、785.5 MB |
+| `official\res\*.gsa` 长度恒等式（`gsaverify.py`） | **5,398/5,398 成立**：`52 + n×tile + (n−1)×16 == size`，同时校验 2B/4B/块数/帧数四个字段 |
+| `res` 族 PNG 导出（`gsa.py png out\gsa`） | **10,989 张 PNG**，0 个文件被跳过；总览 `gsa_sheet-1..19.png`（1,800 个文件抽样） |
 
 
 ---
@@ -609,6 +680,10 @@ python mkeff.py                            # 生成 out\eff\index.html
 | `effrender.py --out DIR [--step N] [--pct 0..1] [--sheet PNG]` | 按关键帧插值把每层 `magicNNNN` 变换后合成静态预览，并可出每页 80 格的总览图 |
 | `mkeff.py` | 生成 `out/eff/index.html`（1,596 个缩略图 + 搜索/类型筛选 + 层与关键帧明细） |
 | `effrefs.py` / `effrefs2.py` | 交叉核对：`.eff` 引用的精灵是否存在于 `magic\`、缺失清单与受影响文件数 |
+| `gsa.py census\|png\|sheet\|show` | **`res\*.gsa`（`QQF\x1aIANI`）解析器**：`census`（→ `--csv`）、`png DIR`（逐帧 PNG）、`sheet PNG`（总览图）、`show FILE [frame]`（单文件调试）；`parse/frames/tiles` 也是库函数 |
+| `gsaverify.py` | 用 `52 + n×tile + (n−1)×16 == size` 恒等式逐个校验 `.gsa` 头部字段（5,398/5,398） |
+| `gsastat.py` | 按顶层子目录聚合 `out/gsa.csv`（文件/字节/帧数/块数），并列出多块大图 |
+| `gsadump.py` / `gsatail.py` / `gsasolve.py` | `.gsa` 头部 u32 逐字段打印 / 头尾字节与候选帧长试除 / 早期布局假设评分（均为逆向过程留下的探针） |
 
 ---
 

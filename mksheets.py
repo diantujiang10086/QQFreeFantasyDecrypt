@@ -26,6 +26,7 @@ GROUPS = [
     ('magic\\magic', 'magic_sheet-*.png', '2,612 个技能特效（抽样 1/8，每格并排最多 4 帧）'),
     ('official\\object', 'object_sheet-*.png', '19,160 个场景物件（34 个子类，抽样 1/20，每格并排最多 2 帧）'),
     ('official\\effect', 'eff_sheet*.png', '1,596 个特效 .eff 的静态合成预览（按 40% 时间轴取关键帧插值）'),
+    ('official\\res', 'gsa_sheet-*.png', '5,398 个 .gsa（界面/表情/立绘/地图，抽样 1/3）—— 与 DIMG 是两种不同容器'),
 ]
 
 
