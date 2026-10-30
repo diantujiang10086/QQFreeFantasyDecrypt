@@ -17,9 +17,10 @@ import importlib.util
 import os
 import struct
 from array import array
+import paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PKG_ROOT = r'F:\WG自由幻想\自由幻想\data'
+PKG_ROOT = paths.DATA
 
 # 底层的 XOR / zstd / lz4 逻辑复用私服工程的原始实现
 _spec = importlib.util.spec_from_file_location(

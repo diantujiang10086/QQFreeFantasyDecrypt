@@ -11,11 +11,12 @@ import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 sys.path.insert(0, HERE)
 import dimg  # noqa: E402
 import combo  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
+import paths
 
 
 def preamble(path):

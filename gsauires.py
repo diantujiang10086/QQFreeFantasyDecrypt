@@ -1,8 +1,9 @@
 """Show how the res\\uires\\*.lua UI scripts reference .gsa files (context window)."""
 import os
 import re
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\res'
+ROOT = paths.sub('data/official/res')
 PAT = re.compile(r'res/[^\'"\s]+\.gsa')
 
 

@@ -21,12 +21,15 @@ CLI
 """
 import collections
 import os
+
+import pkg
 import struct
 import sys
 
 from PIL import Image
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\res'
+_BASE = pkg.PKG_ROOT
+ROOT = os.path.join(_BASE, 'data', 'official', 'res')
 MAGIC = b'QQF\x1aIANI'
 HEAD = 52
 TH = 16

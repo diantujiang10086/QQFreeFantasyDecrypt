@@ -17,8 +17,9 @@ which is the (w, h, stride, flag=1) tail observed in every real file.
 import os
 import struct
 import sys
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 
 SAMPLES = [
     'npc64402.gsn', 'npc64403.gsn', 'npc64404.gsn', 'npc64405.gsn',

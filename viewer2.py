@@ -28,7 +28,7 @@ import tile
 import zipbin
 import zipbinnames
 
-DATA = r'F:\WG自由幻想\自由幻想\data'
+DATA = pkg.PKG_ROOT
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIELDS_CSV = os.path.join(HERE, 'out', 'zipbin_fields.csv')
 
@@ -306,7 +306,7 @@ def eff_blank_set():
     """out/eff_blank.json 里预计算出的「全空特效」文件名集合（effscan.py 生成）。"""
     global _EFF_BLANK_SET
     if _EFF_BLANK_SET is None:
-        p = os.path.join(HERE, 'out', 'eff_blank.json')
+        p = os.path.join(HERE, 'data', 'eff_blank.json')
         s = set()
         try:
             with open(p, encoding='utf-8') as fh:
@@ -317,7 +317,7 @@ def eff_blank_set():
     return _EFF_BLANK_SET
 
 
-_EFF_BOX_FILE = os.path.join(HERE, 'out', 'eff_box.json')
+_EFF_BOX_FILE = os.path.join(HERE, 'data', 'eff_box.json')
 _EFF_BOXES = None
 _FULL_FRACS = (0.0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.0)
 _CHEAP_FRACS = (0.0, 0.35, 0.7, 1.0)
@@ -699,7 +699,7 @@ def fields():
     """表名 -> [(offset, size, kind, field)]；优先读 out/fields_cache.json（mkfields.py 生成）。"""
     global _fld
     if _fld is None:
-        cache = os.path.join(HERE, 'out', 'fields_cache.json')
+        cache = os.path.join(HERE, 'data', 'fields_cache.json')
         if os.path.isfile(cache):
             try:
                 with open(cache, encoding='utf-8') as f:
@@ -1099,6 +1099,20 @@ def warm_effect_thumbs(limit=240, workers=2):
     print('warm done %d in %.0fs' % (len(rels), time.time() - t0), flush=True)
 
 
+def _read_data_conf():
+    """本地配置文件（工作区 data\\ffo_data.txt，一行路径）——唯一记录资源根的位置。"""
+    p = os.path.join(HERE, 'data', 'ffo_data.txt')
+    try:
+        with io.open(p, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    return line
+    except OSError:
+        pass
+    return ''
+
+
 def kill_stale_listeners(port):
     """Windows 允许同端口重复 bind：旧进程会继续接连接、页面不更新。开服前先清干净。"""
     try:
@@ -1126,14 +1140,18 @@ def kill_stale_listeners(port):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8794)
-    ap.add_argument('--data', default=None, help='资源根目录（默认 F:\\WG自由幻想\\自由幻想\\data')
+    ap.add_argument('--data', default=None,
+                    help='游戏资源根目录（唯一允许的外部路径；也可用环境变量 FFO_DATA）')
     ap.add_argument('--warm', type=int, default=0,
                     help='启动时预热多少张特效缩略图（0 = 不预热）')
     ap.add_argument('--no-warm', action='store_true', help='不预热特效缩略图')
     a = ap.parse_args()
     global DATA
-    if a.data:
-        DATA = a.data
+    DATA = a.data or os.environ.get('FFO_DATA') or DATA or _read_data_conf()
+    pkg.set_root(DATA)
+    if not os.path.isdir(DATA):
+        raise SystemExit('resource root not found: %s\n'
+                         'pass --data <dir> or set FFO_DATA (e.g. ...\\data)' % DATA)
     n = kill_stale_listeners(a.port)
     if n:
         print('closed %d stale listener(s) on :%d' % (n, a.port), flush=True)

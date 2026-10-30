@@ -10,9 +10,10 @@ import collections
 
 import dimg
 import headtool
+import paths
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-SRCROOT = r'F:\WG自由幻想\自由幻想\data\data\official\avatar'
+SRCROOT = paths.sub('data/official/avatar')
 
 
 def one(folder, path):

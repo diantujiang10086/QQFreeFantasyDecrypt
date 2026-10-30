@@ -15,8 +15,9 @@ import glob
 import os
 
 import numpy as np
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\tile'
+ROOT = paths.sub('data/official/tile')
 HDR = 48
 REC = 261          # u32 per record == 1044 bytes
 

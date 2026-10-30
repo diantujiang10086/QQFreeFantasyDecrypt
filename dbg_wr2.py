@@ -1,8 +1,9 @@
 import os
 
 import dimg
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\weaponr'
+SRC = paths.sub('data/official/avatar/weaponr')
 
 for nm in ('weaponr37261.gsn', 'weaponr37152.gsn', 'weaponr37257.gsn'):
     d = open(os.path.join(SRC, nm), 'rb').read()

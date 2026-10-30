@@ -11,8 +11,9 @@ import os
 import random
 import struct
 import sys
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 HEAD = 2048
 
 

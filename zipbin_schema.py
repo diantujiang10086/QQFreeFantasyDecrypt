@@ -5,8 +5,9 @@ import os
 import re
 
 import zipbin
+import paths
 
-SRV = r'D:\ffo\FFO7.3\packages\自由幻想10.09\服务器\server'
+SRV = os.path.join(paths.SERVER, 'server')
 CALL = re.compile(r"table\(\s*['\"]([\w.]+\.bin)['\"]\s*,\s*(\d+)\s*\)", re.I)
 
 

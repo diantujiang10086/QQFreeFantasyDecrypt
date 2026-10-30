@@ -17,9 +17,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import dimg      # noqa: E402
 import combo     # noqa: E402
+import paths
 
 REF = os.path.join(HERE, 'out', 'ref')
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar'
+SRC = paths.sub('data/official/avatar')
 ALL = sorted(n for n in os.listdir(REF) if n.endswith('.png'))
 
 

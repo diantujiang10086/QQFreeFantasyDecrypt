@@ -2,8 +2,9 @@ import os
 import sys
 
 import dimg
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\weaponr'
+SRC = paths.sub('data/official/avatar/weaponr')
 
 CASES = [('weaponr37261.gsn', 132, 40, 20),
          ('weaponr37152.gsn', 132, 40, 40),

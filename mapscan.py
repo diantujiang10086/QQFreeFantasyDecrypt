@@ -2,8 +2,9 @@
 import os
 import re
 import sys
+import paths
 
-ROOT = r'D:\ffo\FFO7.3\packages\剑客符咒\服务器'
+ROOT = paths.SERVER
 SKIP = {'__pycache__', 'runtime', 'site-packages', 'Lib', '.git', 'node_modules'}
 
 TERMS = ['.gsm', '.msk', '.smp', 'gsm', 'msk', 'smp', 'collision', 'walkmask',

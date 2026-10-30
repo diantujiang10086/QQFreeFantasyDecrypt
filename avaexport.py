@@ -14,8 +14,9 @@ import math
 import collections
 
 import dimg
+import paths
 
-SRCROOT = r'F:\WG自由幻想\自由幻想\data\data\official\avatar'
+SRCROOT = paths.sub('data/official/avatar')
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

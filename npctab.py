@@ -7,8 +7,9 @@
 """
 import re
 import sys
+import paths
 
-BASE = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+BASE = paths.sub('data/official/avatar/npc')
 NPCTXT = BASE + r'\_npc_.txt'
 ACTION = BASE + r'\action.txt'
 ACTION9 = BASE + r'\action-9085.txt'

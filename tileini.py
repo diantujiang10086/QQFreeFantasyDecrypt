@@ -1,8 +1,9 @@
 """Dump the tile\\*.ini files (GBK, UTF-16 possible) into out/tile_ini_dump.txt (UTF-8)."""
 import os
 import sys
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\tile'
+ROOT = paths.sub('data/official/tile')
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'out', 'tile_ini_dump.txt')
 

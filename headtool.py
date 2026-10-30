@@ -19,13 +19,16 @@ records that ends exactly `12*n_dirs` bytes before EOF, preferring small gaps.
 """
 import csv
 import os
+
+import pkg
 import struct
 import sys
 
 import dimg
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\head'
+_BASE = pkg.PKG_ROOT
+SRC = os.path.join(_BASE, 'data', 'official', 'avatar', 'head')
 MAX_GAP = 512
 
 

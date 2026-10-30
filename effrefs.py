@@ -1,9 +1,10 @@
 """Cross-check .eff sprite references against magic\\ inventory."""
 import glob
 import os
+import paths
 
-MAGIC = r'F:\WG自由幻想\自由幻想\data\data\official\magic\magic'
-EFF = r'F:\WG自由幻想\自由幻想\data\data\official\effect'
+MAGIC = paths.sub('data/official/magic/magic')
+EFF = paths.sub('data/official/effect')
 
 print('--- magic id families')
 for i in (1, 16, 18, 19, 23, 34):

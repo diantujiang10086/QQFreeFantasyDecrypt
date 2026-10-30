@@ -41,10 +41,13 @@ usage:
     python dimg.py [--png DIR] [--csv FILE] [--quiet] [--dump] [file ...]
 """
 import os
+
+import pkg
 import struct
 import sys
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+_BASE = pkg.PKG_ROOT
+SRC = os.path.join(_BASE, 'data', 'official', 'avatar', 'npc')
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out')
 
 # version (major.minor[.patch]) -> int32 words, from main.py

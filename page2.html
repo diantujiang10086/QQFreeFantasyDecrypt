@@ -233,7 +233,7 @@ async function mapDetail(p,name,box){
   const w=info.world||[0,0], sk=info.sketch||[0,0];
   var fitTxt='';
   if(info.fit){var pc=Math.round((info.fit.inside||0)*100);
-    fitTxt='  ·  底图契合 '+pc+'%'+(pc<60?'（建议看「俯视碰撞」）':'');}
+    fitTxt='  ·  底图契合 '+pc+'%';}
   $('#dmeta').textContent=(info.title||info.name||name)+fitTxt+'  ·  世界 '+w[0]+'×'+w[1]
     +'  ·  示意图 '+sk[0]+'×'+sk[1]+'  ·  碰撞格 '+info.cells
     +'  ·  怪物 '+info.monsters+'  ·  NPC '+info.npcs;
@@ -244,14 +244,10 @@ async function mapDetail(p,name,box){
     l.style.cssText='display:inline-flex;gap:4px;align-items:center;color:#cfd6e3;cursor:pointer';
     const c=document.createElement(tag);c.checked=on;l.appendChild(c);
     l.appendChild(document.createTextNode(txt));return [l,c];};
-  const [l1,cCol]=mk('input','碰撞(红)',true);
-  const [l2,cMon]=mk('input','怪物',true);
-  const [l3,cNpc]=mk('input','NPC',true);
-  const [l4,cMask]=mk('input','俯视碰撞',false);
-  const btn=document.createElement('button');
-  btn.textContent='刷新';
-  btn.style.cssText='background:#242933;color:#cfd6e3;border:1px solid #313846;border-radius:5px;padding:3px 10px;cursor:pointer';
-  bar.append(l1,l2,l3,l4,btn);
+  // const btn=document.createElement('button');
+  // btn.textContent='刷新';
+  // btn.style.cssText='background:#242933;color:#cfd6e3;border:1px solid #313846;border-radius:5px;padding:3px 10px;cursor:pointer';
+  // bar.append(btn);
   box.appendChild(bar);
   const wrap=document.createElement('div');
   wrap.style.cssText='overflow:auto;max-height:78vh;border:1px solid #2a303c;background:#282c34';
@@ -297,13 +293,11 @@ async function mapDetail(p,name,box){
   };
   fillLegend(legend);
   box.appendChild(legend);
-  const src=()=>cMask.checked?('/api/mapmask?p='+enc(p)+'&w=1400')
-    :'/api/mapimg?p='+enc(p)+'&w=1400&col='+(cCol.checked?1:0)
-    +'&mon='+(cMon.checked?1:0)+'&npc='+(cNpc.checked?1:0);
-  const draw=()=>{img.src=src()};
-  btn.onclick=draw;
-  cCol.onchange=cMon.onchange=cNpc.onchange=cMask.onchange=draw;
-  draw();
+  const src=()=>'/api/mapimg?p='+enc(p)+'&w=1400&col=1&mon=1&npc=1';
+  // const draw=()=>{img.src=src()};
+  // btn.onclick=draw;
+  // draw();
+  img.src=src();
 }
 
 /* .eff：合成帧 + 「显示文本」开关 */

@@ -11,8 +11,9 @@ Layout (as established):
 import os
 import struct
 import sys
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\res'
+ROOT = paths.sub('data/official/res')
 HEAD = 52
 TH = 16
 

@@ -19,8 +19,26 @@ import zlib
 from array import array
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PKG_ROOT = r'F:\WG自由幻想\自由幻想\data'
+# 只允许读「游戏资源目录」这一处外部路径；可用环境变量 FFO_DATA 或 viewer2 --data 覆盖。
+PKG_ROOT = os.environ.get('FFO_DATA', '')   # 由 --data / FFO_DATA / data\\ffo_data.txt 提供
+if not PKG_ROOT:                     # 未设置环境变量时，回落到本地配置（data/ffo_data.txt）
+    try:
+        import paths
+        PKG_ROOT = paths.DATA
+    except Exception:
+        PKG_ROOT = ''
+
 MASK32 = 0xFFFFFFFF
+
+
+def set_root(path):
+    """切换资源根（pkg 缓存随之清空）。"""
+    global PKG_ROOT
+    path = os.path.abspath(path)
+    if path != PKG_ROOT:
+        PKG_ROOT = path
+        _cache.clear()
+    return PKG_ROOT
 
 
 def _u32(x: int) -> int:
@@ -211,7 +229,8 @@ class Pkg:
 _cache = {}
 
 
-def all_pkgs(root=PKG_ROOT):
+def all_pkgs(root=None):
+    root = root or PKG_ROOT
     out = []
     for i in range(7):
         p = os.path.join(root, 'objects%d.pkg' % i)

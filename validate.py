@@ -18,8 +18,9 @@ import struct
 import sys
 
 from PIL import Image, ImageDraw
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out')
 
 FILES = [

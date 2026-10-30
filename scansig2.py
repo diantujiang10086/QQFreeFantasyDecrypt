@@ -14,8 +14,9 @@ usage: python scansig2.py <file> [n_records] [window_mb]
 import os
 import struct
 import sys
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 
 
 def u32(d, o):

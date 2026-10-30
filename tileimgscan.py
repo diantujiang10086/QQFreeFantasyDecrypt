@@ -9,8 +9,9 @@ import struct
 from collections import Counter
 
 import numpy as np
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\tile'
+ROOT = paths.sub('data/official/tile')
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'out', 'tileimg_scan.txt')
 ENTRY = 64 * 64 * 4

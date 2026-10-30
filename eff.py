@@ -24,11 +24,14 @@ rotation, (r,g,b), alpha)]`.
 import collections
 import csv
 import os
+
+import pkg
 import re
 import sys
 
-EFF = r'F:\WG自由幻想\自由幻想\data\data\official\effect'
-MAGIC = r'F:\WG自由幻想\自由幻想\data\data\official\magic\magic'
+_BASE = pkg.PKG_ROOT
+EFF = os.path.join(_BASE, 'data', 'official', 'effect')
+MAGIC = os.path.join(_BASE, 'data', 'official', 'magic', 'magic')
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 NUM = '0123456789+-.'

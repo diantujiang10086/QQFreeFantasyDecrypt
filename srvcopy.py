@@ -1,8 +1,9 @@
 """把服务端与地图解码相关的模块复制成可读的纯 ASCII 摘要（避免控制台 GBK 报错）。"""
 import os
 import sys
+import paths
 
-ROOT = r'D:\ffo\FFO7.3\packages\剑客符咒\服务器'
+ROOT = paths.SERVER
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out', 'srv')
 
 

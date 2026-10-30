@@ -2,8 +2,9 @@
 import collections
 import os
 import struct
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\res'
+ROOT = paths.sub('data/official/res')
 
 
 def files():

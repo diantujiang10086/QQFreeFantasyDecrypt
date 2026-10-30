@@ -1,8 +1,9 @@
 """地图/碰撞相关的关键文件取样。"""
 import json
 import os
+import paths
 
-ROOT = r'D:\ffo\FFO7.3\packages\剑客符咒\服务器'
+ROOT = paths.SERVER
 
 
 def head(p, n=40, enc='utf-8'):

@@ -19,12 +19,15 @@ import argparse
 import csv
 import glob
 import os
+
+import pkg
 import re
 import struct
 
 from PIL import Image, ImageDraw
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\tile'
+_BASE = pkg.PKG_ROOT
+ROOT = os.path.join(_BASE, 'data', 'official', 'tile')
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'out')
 

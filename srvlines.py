@@ -1,8 +1,9 @@
 """Show lines that mention a keyword, grouped by file (bounded output)."""
 import os
 import sys
+import paths
 
-ROOT = r'D:\ffo\FFO7.3\packages\自由幻想10.09\服务器'
+ROOT = paths.SERVER
 SKIP = {'.git', '__pycache__', 'node_modules', '.pytest_cache', '.workbuddy'}
 TEXT = {'.py', '.cpp', '.h', '.hpp', '.c', '.lua', '.txt', '.md', '.json', '.ini',
         '.xml', '.cs', '.js', '.sql', '.bat', '.cfg'}

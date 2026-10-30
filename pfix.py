@@ -11,8 +11,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import dimg  # noqa: E402
+import paths
 
-BASE = r'F:\WG自由幻想\自由幻想\data\data\official\avatar'
+BASE = paths.sub('data/official/avatar')
 
 
 def find(stem):

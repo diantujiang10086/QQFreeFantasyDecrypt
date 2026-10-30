@@ -1,7 +1,7 @@
 """Census / export / contact sheet for arbitrary DIMG folders outside avatar\\.
 
     python gso.py census                      # item\\item, item\\itempic, magic\\magic
-    python gso.py census "D:\\some\\dir"       # any directory
+    python gso.py census '<dir>'       # any directory
     python gso.py png    "…\\item\\item" out\\item
     python gso.py sheet  "…\\item\\item" out\\item_sheet.png [--step N] [--cols N]
 
@@ -13,8 +13,9 @@ import os
 import sys
 
 import dimg
+import paths
 
-OFFICIAL = r'F:\WG自由幻想\自由幻想\data\data\official'
+OFFICIAL = paths.sub('data/official')
 DEF = [os.path.join(OFFICIAL, 'item', 'item'),
        os.path.join(OFFICIAL, 'item', 'itempic'),
        os.path.join(OFFICIAL, 'magic', 'magic')]

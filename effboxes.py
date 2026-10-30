@@ -11,7 +11,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, 'out', 'eff_box.json')
+OUT = os.path.join(HERE, 'data', 'eff_box.json')
 
 
 def main():

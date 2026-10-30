@@ -2,8 +2,9 @@
 import glob
 import os
 import struct
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\tile'
+ROOT = paths.sub('data/official/tile')
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'out', 'tile_probe.txt')
 

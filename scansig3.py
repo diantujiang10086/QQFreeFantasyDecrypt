@@ -10,8 +10,9 @@ usage: python scansig3.py <file> [max_hits]
 import os
 import struct
 import sys
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 FLAG = b'\x01\x00\x00\x00'
 
 

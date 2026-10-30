@@ -5,8 +5,9 @@
 import os
 import re
 import collections
+import paths
 
-OFFICIAL = r'F:\WG自由幻想\自由幻想\data\data\official'
+OFFICIAL = paths.sub('data/official')
 ITEM = os.path.join(OFFICIAL, 'item', 'item')
 ITEMPIC = os.path.join(OFFICIAL, 'item', 'itempic')
 MAGIC = os.path.join(OFFICIAL, 'magic', 'magic')

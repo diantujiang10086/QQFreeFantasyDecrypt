@@ -23,8 +23,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import dimg  # noqa: E402
 from PIL import Image  # noqa: E402
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar'
+SRC = paths.sub('data/official/avatar')
 NPC = os.path.join(SRC, 'npc')
 HEADS = os.path.join(SRC, 'head')
 NECKS = os.path.join(HERE, 'out', 'neck.json')

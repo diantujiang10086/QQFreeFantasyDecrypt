@@ -6,8 +6,9 @@ usage: python lookup.py <csv> <name> [maxchars]
 import io
 import os
 import sys
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 
 
 def main():

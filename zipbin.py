@@ -7,11 +7,13 @@ Verified against the server source (`server/resources60.py:table`, `server/extra
 import collections
 import csv
 import os
+
+import pkg
 import struct
 import sys
 
-CLIENT = r'F:\WG自由幻想\自由幻想\data\data\official\zipbin'
-SERVER = r'D:\ffo\FFO7.3\packages\自由幻想10.09\服务器\data\client60\resources\zipbin'
+CLIENT = os.path.join(pkg.PKG_ROOT, 'data', 'official', 'zipbin')
+SERVER = os.environ.get('FFO_SERVER', '')      # 可选：私服副本目录
 MAGIC = 0x5566
 
 
@@ -61,7 +63,12 @@ def census(root=CLIENT):
     return out
 
 
-def compare_dirs(a=CLIENT, b=SERVER):
+def compare_dirs(a=None, b=None):
+    a = a or CLIENT
+    b = b or SERVER
+    if not b or not os.path.isdir(b):
+        print('server copy not configured (set FFO_SERVER)')
+        return []
     fa = {n: os.path.getsize(os.path.join(a, n)) for n in os.listdir(a) if n.endswith('.bin')}
     fb = {n: os.path.getsize(os.path.join(b, n)) for n in os.listdir(b) if n.endswith('.bin')}
     both = sorted(set(fa) & set(fb))

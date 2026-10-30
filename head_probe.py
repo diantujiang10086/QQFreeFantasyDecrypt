@@ -86,7 +86,7 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     name = args[0]
     path = name if os.path.exists(name) else os.path.join(
-        r'F:\WG自由幻想\自由幻想\data\data\official\avatar\head',
+        r'<dir>',
         name if name.endswith('.gsn') else name + '.gsn')
     d = open(path, 'rb').read()
     h = dimg.head(d)

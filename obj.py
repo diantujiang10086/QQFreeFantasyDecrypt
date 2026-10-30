@@ -14,8 +14,9 @@ import sys
 
 import dimg
 import gso
+import paths
 
-ROOT = r'F:\WG自由幻想\自由幻想\data\data\official\object'
+ROOT = paths.sub('data/official/object')
 
 
 def all_image_files(root=ROOT):

@@ -33,74 +33,23 @@ def _read(key):
         return None
 
 
-INSPECT_GLOBS = (
-    r'skill_runtime_inspect.json',
-)
-NAME_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               'out', 'map_names.json')
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 
 
-def _inspect_names():
-    """skill_runtime_inspect.json 的 worlds：{id: {file, name}} → {file: name}。"""
-    out = {}
-    for pat in INSPECT_GLOBS:
-        for path in glob.glob(pat):
-            try:
-                with open(path, encoding='utf-8-sig') as fh:
-                    data = json.load(fh)
-            except Exception:                            # noqa: BLE001
-                continue
-            worlds = data.get('worlds') if isinstance(data, dict) else None
-            if not isinstance(worlds, dict):
-                worlds = data if isinstance(data, dict) else {}
-            for _k, v in worlds.items():
-                if not isinstance(v, dict):
-                    continue
-                f, n = v.get('file'), v.get('name')
-                if f and n:
-                    out.setdefault(f.lower(), n.strip())
-        if out:
-            break
-    return out
+def _load_json(name, default=None):
+    p = os.path.join(DATA_DIR, name)
+    try:
+        with open(p, encoding='utf-8') as fh:
+            return json.load(fh)
+    except Exception:                            # noqa: BLE001
+        return default if default is not None else {}
 
 
 def names():
-    """地图 File → Name。优先级：map.def（客户端 3 份合并）> skill_runtime_inspect.json。
-
-    为避免每次都解析 200KB 的 inspect 文件，结果落在 out/map_names.json（精简缓存）。
-    """
+    """地图 file -> 名字。运行期只读本地 data/map_names.json（由 dumpdata.py 一次性生成）。"""
     global _NAME_CACHE
-    if _NAME_CACHE is not None:
-        return _NAME_CACHE
-    if os.path.isfile(NAME_CACHE_FILE):
-        try:
-            with open(NAME_CACHE_FILE, encoding='utf-8') as fh:
-                _NAME_CACHE = json.load(fh)
-            if isinstance(_NAME_CACHE, dict) and _NAME_CACHE:
-                return _NAME_CACHE
-        except Exception:                                # noqa: BLE001
-            pass
-    _NAME_CACHE = {}
-    for _path, _ver, k, _err in pkg.catalog():
-        for j in range(k.count):
-            if not k.key_at(j).lower().endswith('/map.def'):
-                continue
-            try:
-                d = k.read_at(j)
-            except Exception:                           # noqa: BLE001
-                continue
-            _parse_def(d.decode('gbk', 'replace'), _NAME_CACHE)
-    before = len(_NAME_CACHE)
-    for f, n in _inspect_names().items():
-        _NAME_CACHE.setdefault(f, n)
-    try:
-        os.makedirs(os.path.dirname(NAME_CACHE_FILE), exist_ok=True)
-        with open(NAME_CACHE_FILE, 'w', encoding='utf-8') as fh:
-            json.dump(_NAME_CACHE, fh, ensure_ascii=False, sort_keys=True)
-    except Exception:                                    # noqa: BLE001
-        pass
-    print('[maps] names: map.def=%d + inspect=%d -> %d'
-          % (before, len(_NAME_CACHE) - before, len(_NAME_CACHE)), flush=True)
+    if _NAME_CACHE is None:
+        _NAME_CACHE = _load_json('map_names.json')
     return _NAME_CACHE
 
 
@@ -218,15 +167,8 @@ _POS_RE = re.compile(r'init_pos\s*(-?\d+)\s*[,\s]\s*(-?\d+)')
 
 
 _MON_NAMES = None
-MON_STATS_GLOBS = (
-    r'D:\ffo\FFO7.3\packages\*\服务器\data\tables\monster_stats.json',
-    r'D:\ffo\FFO7.3\packages\*\server\data\tables\monster_stats.json',
-)
-MON_LIST_GLOBS = (
-    r'D:\ffo\FFO7.3\packages\*\服务器\assets\tools\fenfentu\monsters.json',
-    r'D:\ffo\FFO7.3\packages\*\服务器\GM工具\cache\monsters.json',
-    r'D:\ffo\FFO7.3\packages\*\服务器\数据\tables\monsters.json',
-)
+
+
 PALETTE = (
     (255, 200, 0), (255, 96, 64), (96, 200, 255), (170, 120, 255), (120, 230, 120),
     (255, 140, 220), (255, 255, 120), (120, 255, 220), (200, 160, 96), (150, 200, 60),
@@ -235,67 +177,17 @@ PALETTE = (
 
 
 def monster_names():
-    """怪物模板 id → 名字：从私服 data/tables/monster_stats.json（键是模板，含 model/name）。"""
+    """怪物 id -> 名字。运行期只读本地 data/monster_names.json。"""
     global _MON_NAMES
-    if _MON_NAMES is not None:
-        return _MON_NAMES
-    _MON_NAMES = {}
-    import glob as _glob
-    import json
-    for pat in MON_STATS_GLOBS:
-        for path in _glob.glob(pat):
+    if _MON_NAMES is None:
+        raw = _load_json('monster_names.json')
+        out = {}
+        for k, v in raw.items():
             try:
-                with open(path, encoding='utf-8-sig') as fh:
-                    data = json.load(fh)
-            except Exception:                        # noqa: BLE001
+                out[int(k)] = v
+            except (TypeError, ValueError):
                 continue
-            rows = data.get('templates') if isinstance(data, dict) and 'templates' in data else data
-            if not isinstance(rows, dict):
-                continue
-            by_model = {}
-            for _k, row in rows.items():
-                if not isinstance(row, dict):
-                    continue
-                nm = (row.get('name') or '').strip()
-                mdl = row.get('model')
-                if not nm or mdl is None:
-                    continue
-                try:
-                    mdl = int(mdl)
-                except (TypeError, ValueError):
-                    continue
-                # 同名模型优先取「非 BOSS 版本」里最短的名字
-                old = by_model.get(mdl)
-                if old is None or (len(nm), bool(row.get('_boss'))) < (len(old), False):
-                    by_model[mdl] = nm
-            if by_model:
-                _MON_NAMES.update(by_model)
-                break
-    # 兜底：assets/tools/fenfentu/monsters.json（列表，每项 id + 名称）
-    for pat in MON_LIST_GLOBS:
-        for path in _glob.glob(pat):
-            try:
-                with open(path, encoding='utf-8-sig') as fh:
-                    data = json.load(fh)
-            except Exception:                        # noqa: BLE001
-                continue
-            rows = data.get('monsters') if isinstance(data, dict) else data
-            if not isinstance(rows, list):
-                continue
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                nm = (row.get('名称') or row.get('名字') or row.get('name') or '').strip()
-                mid = row.get('id')
-                if not nm or mid is None:
-                    continue
-                try:
-                    mid = int(mid)
-                except (TypeError, ValueError):
-                    continue
-                _MON_NAMES.setdefault(mid, nm)
-            if _MON_NAMES:
-                break
+        _MON_NAMES = out
     return _MON_NAMES
 
 
@@ -470,16 +362,10 @@ _FIT_CACHE = None
 
 
 def fit(name):
-    """底图与碰撞网格的吻合度（由 mapfit.py 预先算好：可走区域落在底图内的比例）。"""
+    """底图与碰撞网格的吻合度。运行期只读本地 data/map_fit.json。"""
     global _FIT_CACHE
     if _FIT_CACHE is None:
-        _FIT_CACHE = {}
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out', 'map_fit.json')
-        try:
-            import json
-            _FIT_CACHE = json.load(open(p, encoding='utf-8'))
-        except Exception:                                  # noqa: BLE001
-            _FIT_CACHE = {}
+        _FIT_CACHE = _load_json('map_fit.json')
     return _FIT_CACHE.get(name.lower())
 
 

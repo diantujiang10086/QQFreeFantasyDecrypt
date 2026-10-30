@@ -3,8 +3,9 @@
 import os
 import struct
 import sys
+import paths
 
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar\npc'
+SRC = paths.sub('data/official/avatar/npc')
 
 
 def rows(data, start, stop, label):

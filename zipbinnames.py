@@ -18,7 +18,7 @@ import struct
 
 import zipbin
 
-SRV = r'D:\ffo\FFO7.3\packages\自由幻想10.09\服务器\server'
+SRV = os.environ.get('FFO_SERVER', '')  # 可选，不配置就不扫私服源码
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 CALL = re.compile(r"table\(\s*['\"]([\w.]+\.bin)['\"]\s*,\s*(\d+)\s*\)", re.I)
@@ -72,7 +72,7 @@ def _sources():
     global _SRC_CACHE
     if _SRC_CACHE is None:
         cache = {}
-        for f in sorted(os.listdir(SRV)):
+        for f in (sorted(os.listdir(SRV)) if SRV and os.path.isdir(SRV) else []):
             if not f.endswith('.py'):
                 continue
             try:

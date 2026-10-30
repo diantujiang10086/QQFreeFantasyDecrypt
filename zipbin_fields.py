@@ -11,8 +11,9 @@ import os
 import re
 
 import zipbin
+import paths
 
-SRV = r'D:\ffo\FFO7.3\packages\自由幻想10.09\服务器\server'
+SRV = os.path.join(paths.SERVER, 'server')
 CALL = re.compile(r"table\(\s*['\"]([\w.]+\.bin)['\"]\s*,\s*(\d+)\s*\)", re.I)
 ASSIGN = re.compile(r"([\w\s,\[\]\.]+?)=\s*struct\.unpack_from\(\s*['\"]([<>!=@]?[A-Za-z0-9]+)['\"]"
                     r"\s*,\s*([\w\.\[\]']+)\s*(?:,\s*(\d+)\s*)?\)")

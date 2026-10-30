@@ -3,8 +3,9 @@ import struct
 import sys
 
 import dimg
+import paths
 
-BASE = r'F:\WG自由幻想\自由幻想\data\data\official\avatar'
+BASE = paths.sub('data/official/avatar')
 
 
 def words(d, off, n):

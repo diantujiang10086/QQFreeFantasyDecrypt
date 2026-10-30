@@ -14,9 +14,10 @@ import sys
 from PIL import Image, ImageDraw
 
 import dimg
+import paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = r'F:\WG自由幻想\自由幻想\data\data\official\avatar'
+SRC = paths.sub('data/official/avatar')
 BODY = os.path.join(SRC, 'npc', 'npc1000101.gsn')
 HEAD = os.path.join(SRC, 'head', 'head0101.gsn')
 OUT = os.path.join(HERE, 'out', 'combo2')
