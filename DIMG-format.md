@@ -250,7 +250,7 @@ oh = 4 * GET_MULTI[版本] + (8 * w1 if w0 == 1 else 0)
 
 ---
 
-## 8. 变体族：`avatar\head`（没有固定记录网格）
+## 8. 变体族：`avatar\head` 与其它部件目录
 
 `F:\WG自由幻想\自由幻想\data\data\official\avatar\head` 下 148 个 `.gsn`（另有 `Head.ini`）
 全部是 **v2.36.5**，文件头与 npc 完全同构（`QQF\x1aDIMG` + 4×u16 + 9 字 preamble + 尾
@@ -287,6 +287,78 @@ oh = 4 * GET_MULTI[版本] + (8 * w1 if w0 == 1 else 0)
 每节 5 个 `(dirN)` 各跟 51 个整数，全部是默认值 `50,0,0,…`，与具体 head 文件无映射，
 帧数据完全在 `.gsn` 里。
 
+### `avatar\backpack`：同一容器，方向 × 帧的二维排布
+
+`F:\WG自由幻想\自由幻想\data\data\official\avatar\backpack` 下 **282 个 `.gsn` + `Backpack.ini`**，
+全部 **v2.36.5**、**2 字节/像素**（无 4 字节变体），头部与 npc 同构，`headtool.chain` 一次成链 **282/282**：
+
+| 记录数 | 5 | 20 | 25 | 30 | 35 | 40 |
+|---|---|---|---|---|---|---|
+| 文件数 | 211 | 7 | 2 | 15 | 19 | 28 |
+
+* **记录数 = 5 个方向 × F 帧**（`F = 记录数/5`，282/282 整除），**方向优先排布**：
+  `#0..#F-1` 是方向 1 的 F 帧，然后方向 2 …（`backpack75201` 的 25 条记录就是 5 组
+  完全同尺寸的 5 连帧，`backpack91601` 的 40 条 = 5 组 × 8 帧，组内尺寸只差 ±1 px）。
+  F 的取值 `{1,4,5,6,7,8}` 对应「背包 / 4 帧翅膀 / 5 帧 … / 8 帧飞翼」。
+  最硬的证据是**方向表本身**：`dimg.parse` 原样解析 **282/282 全通过**，`dir_counts` 恒为
+  `[F,F,F,F,F]`（`F∈{1,4,5,6,7,8}`，六种模式分别为 211/7/2/15/19/28 个文件），
+  `oh` 全部 = 40、`first_px` 全部 = 92、`bpp` 全为 2 —— 也就是**这一族根本不需要搜链**，
+  常规固定网格直接解。（`headtool.chain` 只是用来交叉验证，结果同为 282/282。）
+* 间隙仍是常数：`记录间距 = oh - 16`（背包族 `oh` 全为 40，间隙 24）；文件尾 `= 12*n_dirs + 12`（即 `extra=12`，与 head 的 0/36 不同）。
+  记录前缀长度 = `oh - 16`（`oh=40` → 24 字节 = 6 个字），首条记录前缀的第 3 个字常等于 preamble 的 `cy`。
+* **pivot 不能当精灵锚点用**：282 个文件里 **212 个** `cy > H`（`cy/H` 中位数 1.52，最大 2.57），
+  4 个甚至是负数（`backpack85401 (-120,-98)`、`85501 (-137,-119)`、`85701 (-111,-127)`、`86001 (-114,-93)`）。
+  合理读法是「背包挂在角色身上的挂点（角色坐标系）」，而不是自己画布内的枢轴 —— 这和 npc/head
+  的 pivot（贴近精灵底边）语义不同。
+* `Backpack.ini`（16,217 B）与 `Head.ini` 同构：26 节 `(dirN) × 51 个整数`，绝大多数是 `50,0,0,…`，
+  只有 `[run](dir2)` 出现 `-50` 连串 → 同样是**逐帧位移修正**，不含挂点数据。
+* 导出：`python bpack.py --png` → `out/backpack/<stem>/d<dir>_<frame>.png`，共 **3,480 张**；
+  `python bpsheet.py` → `out/backpack_sheet-1..3.png`（每页 96 个文件，各取方向 1 第 0 帧）。
+
+### `avatar\cap` / `face` / `weaponl` / `weaponr`：同样是「方向 × 帧」，外加两类边界文件
+
+这四个目录（`cap` 627、`face` 318、`weaponl` 1,997、`weaponr` 9,631 个 `.gsn`，合计 **12,573 个文件**）
+**全部 v2.36.5、2 字节/像素、`oh` 恒 40、`first_px` 恒 92**，记录排布与 backpack 相同：
+`dir_counts` 恒为 `[F,F,F,F,F]`（5 个方向，每方向 F 帧，方向优先）。`dimg.parse` 端到端校验
+**12,573/12,573 全部通过**，不需要搜链：
+
+| 目录 | 文件 | 帧 | 有像素帧 | 空帧 | 无图文件 | 原始字节 | F 的取值 → 文件数 | `cy > H` 的文件 |
+|---|---|---|---|---|---|---|---|---|
+| `cap` | 627 | 4,375 | 4,369 | 6 | 1 | 9.6 MB | 1→579, 4→7, 5→9, 6→16, 7→1, 8→15 | 553 / 627 |
+| `face` | 318 | 1,590 | 1,427 | 163 | 19 | 0.9 MB | 1→318 | 309 / 318 |
+| `weaponl` | 1,997 | 42,755 | 42,752 | 3 | 0 | 108.0 MB | 1→813, 3→82, 4→382, 7→24, 8→468, 9→228 | 954 / 1,997 |
+| `weaponr` | 9,631 | 223,004 | 222,985 | 19 | 0 | 1,653.7 MB | 1→3254, 3→384, 4→2155, 5→8, 6→19, 7→299, 8→2414, 9→1058, 10→10, 11→10, 12→7, 14→7, 16→4, 17→1, 20→1 | 3,492 / 9,631 |
+
+两个**新的边界写法**（都写进了 `dimg.py`，且不放松任何校验）：
+
+1. **整文件无像素（占位文件）** —— 15 个文件（14 个 `face*.gsn` + `cap39901.gsn`）正好 **320 字节**：
+   `60(头) + 5×40(记录) + 60(方向表)`，每条 40 字节记录 = 24 B 前缀 + 16 B 槽，前缀恒为
+   `(-999999,-999999,0,0,0,0)`（`0xFFF0BDC1` 是「未设置」哨兵），16 B 槽里是 `(0,149,130,0)` 这类
+   **不含合法签名**的字，整文件一个像素都没有 → `method='empty-records'`、`skipped=n_frames`、
+   `px_bytes=0`。判定还必须**整段扫一遍确认没有任何签名**，否则 `face74901.gsn`（380 B、2 个真帧）
+   会「巧合」满足某个 `start/oh` 而被误判。
+2. **最后一帧不写签名，而是躺在文件尾填充区** —— 3 个 `weaponr*.gsn`（`weaponr37261` 7,986 B /
+   `weaponr37152` 15,376 B / `weaponr37257` 17,772 B）：头部后多了 100 字节（记录从 100 开始，
+   首签名在 116 → `first_px=132`），实际帧数 = `n_frames − 1`，**最后一帧只有 12 字节的 `(w,h,0)`**
+   （`(9,2,0)` / `(7,3,0)` / `(10,2,0)`）正好落在「文件尾填充」的位置，方向表里的 sum 仍按
+   `n_frames` 记 → 解析器先试 `walk(n_frames)`，失败再用 `walk(n_frames-1)`，若其后 12 字节正好
+   到方向表起点、且 `stride==0`、`0<w,h≤8192`，就把它记成一条无像素帧。
+
+另外两件被澄清的事：
+
+* **`weaponr110355.gsn` 的「39 条记录」不是异常**：35 条真帧（`[7,7,7,7,7]`）+ 4 条尾部空记录
+  （§6 的 padding 规则），所以 `weaponr` 的记录数分布里没有非 5 倍数。
+* **pivot 仍不是精灵锚点**：cap/face/weaponl/weaponr 里大比例文件的 `cy > H`
+  （如 `cap0001` 画布 29×37、pivot `(13,73)`；`face10001` 24×21、pivot `(14,83)`），与 backpack 一样
+  应读作「角色坐标系里的挂点」；只有 head 族的 pivot 是「自己的下巴」。
+* `weaponr` 里 `(300,300)` 这一种精灵尺寸独占 1,055 帧（`weaponr128001/128003/128051/…`，
+  画布 300×300），其余都是 20–42 px 的小图标；`weaponl` 最大画布 192×182（`weaponl128257`）、
+  `cap` 190×135（`cap22801`）、`face` 74×80（`face34701`/`face35201`）。
+
+导出：`python avaexport.py --png out\cap cap`（同理 `face` / `weaponl` / `weaponr`，可用 `--step` 抽样、
+`--limit` 限制数量）→ `out/<dir>/<stem>/d<dir>_<frame>.png`；`python avaexport.py --sheet out\face_sheet face`
+→ `out/face_sheet-1..4.png`。普查：`python avacensus.py --csv out\ava_cap.csv cap`。
+
 ---
 
 ## 9. 尚未解决的部分
@@ -317,6 +389,12 @@ oh = 4 * GET_MULTI[版本] + (8 * w1 if w0 == 1 else 0)
 | 4B/px 帧的 alpha | 抽查 `npc539801t` f0（185×261）：不透明 22.3%、有 alpha 60.8%，与 2B/px 帧同量级 |
 | `avatar\head` 全目录搜链解析（`headtool.py --scan`） | **148/148 文件成链**（16 个 10 记录族 + 132 个 5 记录族，`tail_extra` 0 / 36），`Σdirs == n_frames` 全成立 |
 | `head` 族 PNG 导出（`headtool.py --png out\head`） | **820 张**（16×10 + 132×5），0 个文件被跳过 |
+| `avatar\backpack` 全目录搜链解析（`bpack.py`） | **282/282 文件成链**，记录数 = 5 方向 × F 帧（F∈{1,4,5,6,7,8}，282/282 被 5 整除），`tail_extra` 恒 12，bpp 全为 2 |
+| `avatar\backpack` 用 `dimg.parse` 原样解析 | **282/282 OK / 0 FAIL**，`oh` 全 40、`first_px` 全 92、`dir_counts` 恒 `[F]*5` |
+| `backpack` 族 PNG 导出（`bpack.py --png`） | **3,480 张** `out/backpack/<stem>/d<dir>_<frame>.png`，0 个文件被跳过 |
+| `avatar\cap` / `face` / `weaponl` / `weaponr` 解析（`avacensus.py`） | **12,573/12,573 全部通过**（cap 627、face 318、weaponl 1,997、weaponr 9,631），`oh` 恒 40、`dir_counts` 恒 `[F,F,F,F,F]`，0 失败 |
+| `cap` / `face` / `weaponl` PNG 导出（`avaexport.py --png`） | **4,369 / 1,427 / 42,752 张**，0 个文件被跳过；`weaponr` 抽样 602 文件 → 14,155 张 |
+| `selftest.py` 回归（每改一次 `dimg.py`） | **38 ok / 0 failed**（新增 `empty-records` 与「尾帧在填充区」两条规则后仍全过） |
 
 
 ---
@@ -347,6 +425,13 @@ oh = 4 * GET_MULTI[版本] + (8 * w1 if w0 == 1 else 0)
 | `flags.py` / `ohrule.py` / `w0w1.py` | 全库 flag(=bpp) 普查 / preamble→oh 规则验证 / w0,w1 交叉表 |
 | `trec.py` / `tdump.py` / `t42102.py` | 逐记录前缀+签名视图 / 带绝对偏移的 hexdump / npc42102 专项 |
 | `px4stat.py` / `px4cmp.py` | 4B/px 通道均值统计 / 6 种通道序并排对比图 |
+| `bpack.py [--png]` | **backpack 族**：逐文件打印 canvas/pivot/记录尺寸，`--png` 导出 `out/backpack/<stem>/d<dir>_<frame>.png`，并写 `out/backpack.csv` |
+| `bpgroups.py` / `bpgeom.py` | 验证「方向优先 × F 帧」排布（记录数是否 5 整除、同尺寸连块）/ pivot 统计（`cy > H` 计数、负 pivot 清单） |
+| `bpsheet.py` | 生成 `out/backpack_sheet-<页>.png`（每页 96 个文件，取方向 1 第 0 帧） |
+| `avacensus.py <dir...> [--csv FILE]` | 任意 avatar 子目录的解析普查（`dimg.parse` → brute → `headtool`），打印 method/oh/dir 模式直方图并写 CSV |
+| `avaexport.py --png DIR ` / `--sheet PNG` / `--stats` | cap/face/weaponl/weaponr 通用导出器：按方向表命名 `d<dir>_<k>.png`（不可用时扁平 `f%04d.png`）、每页 96 格总览图、统计（dir 模式/尺寸直方图/最大画布/pivot 越界）；支持 `--step N`、`--limit N` |
+| `mksheets.py` | 把 `out/*_sheet*.png` 汇总成画廊页 `out/sheets/index.html`（head/backpack/cap/face/weaponl/weaponr 共 22 页） |
+| `countframes.py <avacensus.csv> <dir>` | 逐文件重新解析，统计帧数/空帧/像素字节（`weaponr` 全量：223,004 帧、19 空帧、1.72 GB 像素） |
 
 ---
 

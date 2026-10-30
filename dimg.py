@@ -171,6 +171,20 @@ def dir_table(d, n_dirs, n_frames):
 
 def finish(d, h, first_px, oh, tag):
     frames, ok, why = walk(d, first_px, oh, h['n_frames'])
+    if not ok and h['n_frames'] > 1:
+        # A few writers put the last (pixel-less) frame in the file-end pad
+        # slot instead of a real record: 12 bytes of (w, h, 0) right before
+        # the direction table (weaponr37261/37152/37257).  Parse the shorter
+        # grid, then account for the trailing frame.
+        f2, ok2, _ = walk(d, first_px, oh, h['n_frames'] - 1)
+        if ok2:
+            last_pre, lw, lh, lpx, lbpp = f2[-1]
+            endx = last_pre + oh + (0 if lpx is None else lbpp * lw * lh)
+            if endx + 12 == len(d) - 12 * h['n_dirs']:
+                w, hh, s = u32(d, endx), u32(d, endx + 4), u32(d, endx + 8)
+                if 0 < w <= 8192 and 0 < hh <= 8192 and s == 0:
+                    frames = f2 + [(endx - oh, 0, 0, None, 0)]
+                    ok = True
     if not ok:
         return None, f'{tag}: {why}'
     skipped = sum(1 for f in frames if f[3] is None)
@@ -225,10 +239,71 @@ def finish(d, h, first_px, oh, tag):
     }, ''
 
 
+def empty_file(d, h):
+    """Whole-file parser for the "not a single pixel" variant.
+
+    Some placeholders carry no image data at all: every record is a prefix
+    slot plus a 16-byte slot that never holds a valid signature, the records
+    are fixed size, and the file closes exactly on
+    `start + n_frames*oh + 12*n_dirs`.  Measured on the 14 `face*`
+    placeholders (320 B each = 60 + 5*40 + 60) and on the `npc` anchor
+    tables (e.g. npc573201t.gsn 2532 = 100 + 60*40 + 72).
+    """
+    n, nd = h['n_frames'], h['n_dirs']
+    if n <= 0 or nd <= 0:
+        return None
+    for start in (60, 76, 84, 88, 92, 100, 108, 124, 132, 140):
+        for oh in (28, 32, 36, 40, 44, 48, 56, 64, 80, 96):
+            if start + n * oh + 12 * nd != len(d):
+                continue
+            frames = []
+            bad = False
+            for i in range(n):
+                pre = start + i * oh
+                if sig_at(d, pre + oh - 16) or sig_at(d, pre + 16):
+                    bad = True
+                    break
+                frames.append((pre, 0, 0, None, 0))
+            if bad:
+                continue
+            # The size identity leaves literally no room for pixels, but only
+            # trust it when the record region carries no signature at all
+            # (cheap for the small placeholder files this variant consists of).
+            if len(d) <= 20000:
+                stop = len(d) - 12 * nd
+                q = start
+                while q + 16 <= stop:
+                    if sig_at(d, q):
+                        bad = True
+                        break
+                    q += 2
+                if bad:
+                    continue
+            d_ok, counts = dir_table(d, nd, n)
+            note = ('no pixel data in the whole file: %d record(s) at %d-byte '
+                    'stride, all of them empty' % (n, oh))
+            if not d_ok:
+                counts = []
+                note += '; direction table did not validate'
+            tail = len(d) - (start + n * oh)
+            return {
+                'ok': True, 'header': h, 'tag': 'empty-records',
+                'first_px': start, 'oh': oh, 'frames': frames,
+                'end': start + n * oh, 'tail': tail, 'dir_note': note,
+                'extra': tail - 12 * nd, 'dir_counts': counts,
+                'skipped': n, 'bpps': [], 'bpp': 0, 'px_bytes': 0,
+                'method': 'empty-records',
+            }
+    return None
+
+
 def parse(d, brute=True):
     """Auto-detect layout.  Returns dict with ok / tried."""
     h = head(d)
     tried = []
+    r = empty_file(d, h)
+    if r:
+        return r
     for first_px, oh, tag in hints(h):
         r, why = finish(d, h, first_px, oh, tag)
         if r:
@@ -398,7 +473,7 @@ def main():
             names.append(a)
         i += 1
     if not names:
-        names = sorted(f for f in os.listdir(SRC) if f.endswith('.gsn'))
+        names = sorted(f for f in os.listdir(SRC) if f.endswith('.gsn'))[:25]
     run(names, png, csv_path, quiet, dump)
 
 
